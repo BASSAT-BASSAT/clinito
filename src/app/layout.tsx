@@ -3,8 +3,15 @@ import Script from 'next/script';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'MedAssist AI - Medical Image Analysis',
-  description: 'AI-powered medical image analysis assistant',
+  title: 'CLINITO - AI Medical Image Analysis',
+  description: 'AI-powered medical image analysis with voice commands. Detect fractures, tumors, and more using SAM 3 technology.',
+  keywords: ['medical imaging', 'AI', 'SAM', 'radiology', 'voice commands', 'healthcare'],
+  authors: [{ name: 'CLINITO' }],
+  openGraph: {
+    title: 'CLINITO - AI Medical Image Analysis',
+    description: 'Voice-powered medical image analysis using SAM 3 AI',
+    type: 'website',
+  },
 };
 
 export default function RootLayout({
@@ -13,8 +20,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-medical-bg antialiased">
+    <html lang="en" className="dark">
+      <head>
+        <link rel="icon" href="/favicon.ico" />
+        <meta name="theme-color" content="#0a0a0f" />
+      </head>
+      <body className="min-h-screen bg-[#0a0a0f] antialiased noise">
         {children}
         
         {/* Botpress Chatbot */}
