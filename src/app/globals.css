@@ -1,0 +1,105 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --medical-primary: #0F766E;
+  --medical-secondary: #134E4A;
+  --medical-accent: #5EEAD4;
+  --medical-bg: #0D1117;
+  --medical-card: #161B22;
+  --medical-border: #30363D;
+  --medical-text: #E6EDF3;
+  --medical-muted: #8B949E;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--medical-bg);
+  color: var(--medical-text);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--medical-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--medical-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--medical-muted);
+}
+
+.glow-teal {
+  box-shadow: 0 0 20px rgba(94, 234, 212, 0.15),
+              0 0 40px rgba(94, 234, 212, 0.1);
+}
+
+.glow-teal-strong {
+  box-shadow: 0 0 30px rgba(94, 234, 212, 0.25),
+              0 0 60px rgba(94, 234, 212, 0.15);
+}
+
+.bg-gradient-medical {
+  background: linear-gradient(135deg, #0F766E 0%, #134E4A 50%, #0D1117 100%);
+}
+
+.bg-mesh {
+  background-image: 
+    radial-gradient(at 40% 20%, rgba(15, 118, 110, 0.3) 0px, transparent 50%),
+    radial-gradient(at 80% 0%, rgba(20, 184, 166, 0.15) 0px, transparent 50%),
+    radial-gradient(at 0% 50%, rgba(94, 234, 212, 0.1) 0px, transparent 50%),
+    radial-gradient(at 80% 50%, rgba(15, 118, 110, 0.2) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(20, 184, 166, 0.15) 0px, transparent 50%);
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 0.8; }
+  50% { transform: scale(1.2); opacity: 0.4; }
+  100% { transform: scale(0.8); opacity: 0.8; }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 1.5s ease-in-out infinite;
+}
+
+.card-hover {
+  transition: all 0.3s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+
+.mask-overlay {
+  mix-blend-mode: multiply;
+  opacity: 0.6;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--medical-card) 25%, var(--medical-border) 50%, var(--medical-card) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite;
+}
+
+@keyframes skeleton-loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
