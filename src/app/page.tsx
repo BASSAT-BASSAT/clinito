@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { 
   Mic, MicOff, Loader2, Upload, X, Brain, Scan, 
   Stethoscope, Activity, Zap, Shield, ChevronRight,
-  Volume2, VolumeX, Sparkles, Heart, Eye
+  Volume2, VolumeX, Sparkles, Heart, Eye, Users
 } from 'lucide-react';
+import Link from 'next/link';
 
 // Declare SpeechRecognition types
 declare global {
@@ -16,6 +18,8 @@ declare global {
 }
 
 export default function Home() {
+  const searchParams = useSearchParams();
+  
   // States
   const [activeTab, setActiveTab] = useState<'home' | 'analyze'>('home');
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -30,10 +34,17 @@ export default function Home() {
   const [status, setStatus] = useState('Ready');
   const [maskOpacity, setMaskOpacity] = useState(0.6);
   
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const imageFileRef = useRef<File | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Check URL params for tab
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'analyze') {
+      setActiveTab('analyze');
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     imageFileRef.current = imageFile;
@@ -79,7 +90,6 @@ export default function Home() {
     setAnalysisResult(null);
     setConfidence(0);
     setStatus('Ready');
-    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   // SAM Analysis
@@ -292,6 +302,13 @@ export default function Home() {
               >
                 Analyze
               </button>
+              <Link
+                href="/patients"
+                className="px-5 py-2 rounded-full text-sm font-medium text-white/60 hover:text-white transition-all flex items-center gap-2"
+              >
+                <Users className="w-4 h-4" />
+                Patients
+              </Link>
             </div>
 
             <div className="flex items-center gap-3">
@@ -341,10 +358,7 @@ export default function Home() {
 
               <div className="flex items-center justify-center gap-4">
                 <button
-                  onClick={() => {
-                    setActiveTab('analyze');
-                    setTimeout(() => fileInputRef.current?.click(), 100);
-                  }}
+                  onClick={() => setActiveTab('analyze')}
                   className="group px-8 py-4 bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-2xl font-semibold text-white shadow-2xl shadow-emerald-500/25 hover:shadow-emerald-500/40 transition-all hover:scale-105"
                 >
                   <span className="flex items-center gap-2">
@@ -428,24 +442,20 @@ export default function Home() {
                   </div>
 
                   {!imagePreview ? (
-                    <div
-                      onClick={() => fileInputRef.current?.click()}
-                      className="relative border-2 border-dashed border-white/20 rounded-2xl p-16 text-center cursor-pointer hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all group"
-                    >
-                      <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <Upload className="w-10 h-10 text-emerald-400" />
-                      </div>
-                      <p className="text-lg font-medium text-white/70 mb-2">Drop your image here</p>
-                      <p className="text-sm text-white/40">or click to browse</p>
-                      <p className="text-xs text-white/30 mt-4">Supports X-ray, CT, MRI</p>
+                    <label className="relative border-2 border-dashed border-white/20 rounded-2xl p-16 text-center cursor-pointer hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all group block">
                       <input
-                        ref={fileInputRef}
                         type="file"
                         accept="image/*"
                         onChange={handleImageUpload}
-                        className="hidden"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                       />
-                    </div>
+                      <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform pointer-events-none">
+                        <Upload className="w-10 h-10 text-emerald-400" />
+                      </div>
+                      <p className="text-lg font-medium text-white/70 mb-2 pointer-events-none">Drop your image here</p>
+                      <p className="text-sm text-white/40 pointer-events-none">or click to browse</p>
+                      <p className="text-xs text-white/30 mt-4 pointer-events-none">Supports X-ray, CT, MRI</p>
+                    </label>
                   ) : (
                     <div className="space-y-4">
                       <div className="relative rounded-2xl overflow-hidden bg-black aspect-square">
@@ -624,14 +634,6 @@ export default function Home() {
         </div>
       </footer>
 
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleImageUpload}
-        className="hidden"
-      />
     </div>
   );
 }

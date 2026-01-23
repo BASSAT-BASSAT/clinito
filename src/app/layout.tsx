@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import Script from 'next/script';
+import { ConvexClientProvider } from '@/components/ConvexClientProvider';
+import { PatientContextBanner } from '@/components/PatientContextBanner';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -26,8 +28,11 @@ export default function RootLayout({
         <meta name="theme-color" content="#0a0a0f" />
       </head>
       <body className="min-h-screen bg-[#0a0a0f] antialiased noise">
-        {children}
-        
+        <ConvexClientProvider>
+          {children}
+          <PatientContextBanner />
+        </ConvexClientProvider>
+
         {/* Botpress Chatbot */}
         <Script 
           src="https://cdn.botpress.cloud/webchat/v3.5/inject.js"
