@@ -3,7 +3,18 @@
   "outputDirectory": ".next",
   "framework": "nextjs",
   "regions": ["iad1"],
-  "env": {
-    "NEXT_PUBLIC_CONVEX_URL": "https://befitting-buffalo-956.convex.cloud"
+  "functions": {
+    "src/app/api/sam3/segment/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/sam3-cloud/segment/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/tts/route.ts": {
+      "maxDuration": 30
+    },
+    "src/app/api/stt/route.ts": {
+      "maxDuration": 30
+    }
   }
 }
