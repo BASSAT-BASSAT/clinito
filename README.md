@@ -3,7 +3,8 @@
 
 CLINITO is an AI-powered medical assistant that combines advanced medical image analysis with conversational intelligence to help doctors work faster and smarter.
 
-### 🎥 [Watch Project Demo](https://drive.google.com/drive/folders/1TJBroyhzmfNL0PFm79xb9xDVyauD9aOX?usp=sharing)
+### 🎥 [Watch Project Demo](https://drive.google.com/file/d/1OkluPaU6PmBa_6JqIvYLzDfuX6kpJgPA/view?usp=sharing)
+### 📄 [Read Full Project Report (PDF)](https://drive.google.com/file/d/1NDwJAgPA0_5ZDkNMZxSyT6raBneRr5cy/view?usp=sharing)
 
 <img src="Medical%20SAM3%20Idea%20pic.png" width="100%" alt="CLINITO Project Idea"/>
 <img src="Medical-SAM3/assests/overview.svg" width="100%" alt="Medical-SAM3 Overview"/>
