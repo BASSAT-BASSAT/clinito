@@ -1,0 +1,12 @@
+node_modules
+.next/
+.env.local
+.env
+*.log
+sam3-server/venv/
+sam3-server/__pycache__/
+__pycache__/
+*.pyc
+sam3-server/sam2.1_b.pt
+.vercel
+.env*.local

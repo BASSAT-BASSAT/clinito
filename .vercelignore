@@ -1,0 +1,21 @@
+# Python environment and server
+clinito-env/
+sam3-server/
+Medical-SAM3/
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+node_modules/
+
+# Git
+.git/
+
+# Build outputs
+.next/
+
+# Misc
+*.log
+.env
+.env.local
