@@ -10,3 +10,5 @@ __pycache__/
 sam3-server/sam2.1_b.pt
 .vercel
 .env*.local
+
+clinito-env/
