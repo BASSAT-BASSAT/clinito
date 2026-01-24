@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`Running segmentation for prompt: "${prompt}"`);
 
-    // Call the segment API
+    // Call the segment API with lower thresholds
     const result = await client.predict("/segment", {
       image: {
         url: dataUrl,
@@ -43,14 +43,14 @@ export async function POST(request: NextRequest) {
         meta: {},
       },
       text: prompt,
-      threshold: 0.3,        // Detection threshold (lower = more sensitive)
-      mask_threshold: 0.4,   // Mask threshold
+      threshold: 0.2,        // Detection threshold (20% - more sensitive)
+      mask_threshold: 0.3,   // Mask threshold (lower for more coverage)
     });
 
     console.log('SAM3 API response received');
+    console.log('Raw result:', JSON.stringify(result.data, null, 2));
 
     // Parse the result
-    // Result format: [annotatedImage, infoMarkdown]
     const data = result.data as [
       { image: string; annotations: Array<{ image: string; label: string }> },
       string
@@ -61,24 +61,39 @@ export async function POST(request: NextRequest) {
 
     // Check if we got any annotations/masks
     if (!annotatedResult.annotations || annotatedResult.annotations.length === 0) {
+      if (annotatedResult.image) {
+        return NextResponse.json({
+          success: true,
+          mask_url: annotatedResult.image,
+          description: `🔬 SAM3 analyzed "${prompt}". ${infoText}\n\n⚠️ This AI highlights visual features for reference only.`,
+          confidence: 0.5,
+          stats: { mode: 'sam3-cloud', prompt, info: infoText, used_main_image: true },
+        });
+      }
+      
       return NextResponse.json({
         success: true,
         mask_url: null,
-        description: `No regions detected for "${prompt}". Try a different prompt or adjust thresholds.`,
-        confidence: 0.3,
+        description: `No regions detected for "${prompt}". Try a different prompt.`,
+        confidence: 0.2,
         stats: { mode: 'sam3-cloud', prompt, info: infoText },
       });
     }
 
-    // Get the first annotation's mask
-    const firstAnnotation = annotatedResult.annotations[0];
-    const maskUrl = firstAnnotation.image; // This should be a URL or base64
+    // Get the FIRST annotation (highest confidence)
+    const bestAnnotation = annotatedResult.annotations[0];
+    const maskUrl = bestAnnotation.image;
 
-    // Calculate confidence based on number of annotations
-    const confidence = Math.min(0.9, 0.5 + (annotatedResult.annotations.length * 0.1));
+    // Parse confidence from label if available
+    let confidence = 0.7;
+    const labelMatch = bestAnnotation.label?.match(/\((\d+\.?\d*)%?\)/);
+    if (labelMatch) {
+      confidence = parseFloat(labelMatch[1]) / 100;
+    }
 
     const description = (
-      `🔬 SAM3 Cloud detected "${prompt}" with ${annotatedResult.annotations.length} region(s). ` +
+      `🔬 SAM3 detected "${prompt}" - showing highest confidence region. ` +
+      `Found ${annotatedResult.annotations.length} total region(s). ` +
       `\n\n${infoText}` +
       `\n\n⚠️ This AI highlights visual features for reference only. ` +
       `ALWAYS consult a qualified physician for medical interpretation.`
@@ -93,6 +108,7 @@ export async function POST(request: NextRequest) {
         mode: 'sam3-cloud',
         prompt,
         annotations_count: annotatedResult.annotations.length,
+        label: bestAnnotation.label,
         info: infoText,
       },
     });
