@@ -73,7 +73,7 @@ async function handleCloudSAM3(request: NextRequest) {
     
     // Connect to the HuggingFace Space
     const client = await Client.connect("akhaliq/sam3", {
-      hf_token: HF_TOKEN as `hf_${string}`,
+      token: HF_TOKEN as `hf_${string}`,
     });
 
     console.log(`Running segmentation for prompt: "${prompt}"`);
