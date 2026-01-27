@@ -1,114 +1,118 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { 
-  Users, UserPlus, Search, ArrowLeft, Phone, 
-  Calendar, Droplets, AlertCircle, FileText, ChevronRight,
-  X, Cloud, CheckCircle, Image, Upload, Trash2
+  Users, UserPlus, Search, ArrowLeft, Phone, Mail,
+  Calendar, Droplets, AlertCircle, ChevronRight, X, Trash2,
+  MessageCircle, Camera, Home, Building2, Plus, Settings
 } from 'lucide-react';
-
-// Declare Botpress types
-declare global {
-  interface Window {
-    botpress?: {
-      on: (event: string, callback: (data: unknown) => void) => void;
-      sendMessage: (text: string) => void;
-      sendEvent: (event: { type: string; payload?: any }) => void;
-      open: () => void;
-      close: () => void;
-      toggle: () => void;
-    };
-  }
-}
+import { useAuth } from '@/components/AuthProvider';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
+import { Id } from '../../../convex/_generated/dataModel';
 
 export default function PatientsPage() {
-  const [showAddForm, setShowAddForm] = useState(false);
+  const { doctor } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedPatient, setSelectedPatient] = useState<string | null>(null);
+  const [selectedPatient, setSelectedPatient] = useState<any>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [showContactModal, setShowContactModal] = useState<any>(null);
+  const [contactMessage, setContactMessage] = useState('');
+  const [patientImage, setPatientImage] = useState<string | null>(null);
+  const [showAddClinic, setShowAddClinic] = useState(false);
+  const [selectedClinicFilter, setSelectedClinicFilter] = useState<string>('all');
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
-  // Convex queries
-  const patients = useQuery(api.patients.getAllPatients);
-  const searchResults = useQuery(
-    api.patients.searchPatients,
-    searchTerm ? { searchTerm } : 'skip'
-  );
-  const portfolio = useQuery(
-    api.patients.getPatientPortfolio,
-    selectedPatient ? { patientId: selectedPatient } : 'skip'
-  );
-  const patientImages = useQuery(
-    api.images.getPatientImages,
-    selectedPatient ? { patientId: selectedPatient } : 'skip'
-  );
+  // Get doctor ID from auth
+  const doctorId = doctor?.id as Id<"doctors"> | undefined;
 
+  // Convex queries - ONLY get this doctor's patients
+  const doctorPatients = useQuery(
+    api.patients.getPatientsByDoctor,
+    doctorId ? { doctorId } : "skip"
+  ) || [];
+
+  // Get this doctor's clinics
+  const doctorClinics = useQuery(
+    api.clinics.getDoctorClinics,
+    doctorId ? { doctorId } : "skip"
+  ) || [];
+  
   // Convex mutations
   const createPatient = useMutation(api.patients.createPatient);
-  const generateUploadUrl = useMutation(api.images.generateUploadUrl);
-  const saveImage = useMutation(api.images.saveImage);
-  const deleteImage = useMutation(api.images.deleteImage);
+  const deletePatientMutation = useMutation(api.patients.deletePatient);
+  const createClinic = useMutation(api.clinics.createClinic);
 
-  // Image upload state
-  const [uploading, setUploading] = useState(false);
-  const [imageType, setImageType] = useState<'xray' | 'ct' | 'mri' | 'ultrasound' | 'photo' | 'other'>('photo');
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedPatient) return;
-    
-    setUploading(true);
-    try {
-      const uploadUrl = await generateUploadUrl();
-      const result = await fetch(uploadUrl, { method: 'POST', body: file });
-      const { storageId } = await result.json();
-      
-      await saveImage({
-        patientId: selectedPatient,
-        storageId,
-        fileName: file.name,
-        imageType,
-      });
-    } catch (error) {
-      console.error('Upload failed:', error);
+  // Filter patients by search and clinic
+  const filteredPatients = doctorPatients.filter((p: any) => {
+    // Filter by clinic
+    if (selectedClinicFilter !== 'all') {
+      if (p.clinicId !== selectedClinicFilter) return false;
     }
-    setUploading(false);
-    e.target.value = '';
+    
+    // Filter by search
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    const fullName = `${p.firstName} ${p.lastName}`.toLowerCase();
+    return (
+      fullName.includes(term) ||
+      (p.phone || '').includes(searchTerm) ||
+      p.patientId.toLowerCase().includes(term) ||
+      (p.email || '').toLowerCase().includes(term)
+    );
+  });
+
+  // Get clinic name by ID
+  const getClinicName = (clinicId: string) => {
+    const clinic = doctorClinics.find((c: any) => c._id === clinicId);
+    return clinic?.name || 'Unknown';
   };
 
-  const displayPatients = searchTerm && searchResults ? searchResults : patients;
-
-  // Store patient context when a patient is selected
-  useEffect(() => {
-    if (portfolio) {
-      const patientContext = {
-        name: `${portfolio.patient.firstName} ${portfolio.patient.lastName}`,
-        id: portfolio.patient.patientId,
-        gender: portfolio.patient.gender,
-        bloodType: portfolio.patient.bloodType || 'Unknown',
-        allergies: portfolio.patient.allergies?.join(', ') || 'None',
-        medicalHistory: portfolio.patient.medicalHistory || 'No prior history',
-        recentMedications: portfolio.medications?.map((m: any) => m.name).join(', ') || 'None',
-      };
-
-      // Store in localStorage for the PatientContextBanner
-      localStorage.setItem('currentPatient', JSON.stringify(patientContext));
-      
-      // Dispatch custom event for immediate update
-      window.dispatchEvent(new CustomEvent('patientContextChange', { detail: patientContext }));
-
-      // Also try to send to Botpress if available
-      if (window.botpress) {
-        window.botpress.sendEvent({
-          type: 'patient-context',
-          payload: patientContext,
-        });
+  // Delete patient
+  const handleDelete = async (patientId: string) => {
+    try {
+      await deletePatientMutation({ patientId });
+      setShowDeleteConfirm(null);
+      if (selectedPatient?.patientId === patientId) {
+        setSelectedPatient(null);
       }
-
-      console.log('Patient context stored:', patientContext);
+    } catch (error) {
+      console.error('Error deleting patient:', error);
+      alert('Failed to delete patient');
     }
-  }, [portfolio]);
+  };
+
+  // Send WhatsApp
+  const sendWhatsApp = async (patient: any) => {
+    if (!patient.phone) {
+      alert('Patient has no phone number');
+      return;
+    }
+    const message = encodeURIComponent(
+      contactMessage || `Hello ${patient.firstName}, this is Dr. ${doctor?.firstName} from Clinito.`
+    );
+    const phone = patient.phone.replace(/\D/g, '');
+    window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+    setShowContactModal(null);
+    setContactMessage('');
+  };
+
+  // Send Email
+  const sendEmail = async (patient: any) => {
+    if (!patient.email) {
+      alert('Patient has no email');
+      return;
+    }
+    const subject = encodeURIComponent(`Message from Dr. ${doctor?.firstName} ${doctor?.lastName}`);
+    const body = encodeURIComponent(
+      contactMessage || `Hello ${patient.firstName}, this is Dr. ${doctor?.firstName} from Clinito.`
+    );
+    window.open(`mailto:${patient.email}?subject=${subject}&body=${body}`, '_blank');
+    setShowContactModal(null);
+    setContactMessage('');
+  };
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -120,550 +124,498 @@ export default function PatientsPage() {
     bloodType: '',
     allergies: '',
     medicalHistory: '',
+    clinicId: '',
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const [newClinicData, setNewClinicData] = useState({
+    name: '',
+    type: 'clinic' as 'clinic' | 'hospital' | 'other',
+    address: '',
+    phone: '',
+  });
+
+  // Handle image selection
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => setPatientImage(e.target?.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Add new clinic
+  const handleAddClinic = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!doctorId) return;
+
+    try {
+      const clinicId = await createClinic({
+        doctorId,
+        name: newClinicData.name,
+        type: newClinicData.type,
+        address: newClinicData.address || undefined,
+        phone: newClinicData.phone || undefined,
+      });
+      
+      setFormData({ ...formData, clinicId: clinicId });
+      setShowAddClinic(false);
+      setNewClinicData({ name: '', type: 'clinic', address: '', phone: '' });
+    } catch (error) {
+      console.error('Error creating clinic:', error);
+      alert('Failed to create clinic');
+    }
+  };
+
+  const handleAddPatient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!doctorId) {
+      alert('Please login first');
+      return;
+    }
+    
     try {
       await createPatient({
         firstName: formData.firstName,
         lastName: formData.lastName,
-        dateOfBirth: formData.dateOfBirth,
+        dateOfBirth: formData.dateOfBirth || new Date().toISOString().split('T')[0],
         gender: formData.gender,
         phone: formData.phone || undefined,
         email: formData.email || undefined,
         bloodType: formData.bloodType || undefined,
         allergies: formData.allergies ? formData.allergies.split(',').map(a => a.trim()) : undefined,
         medicalHistory: formData.medicalHistory || undefined,
+        doctorId: doctorId,
+        clinicId: formData.clinicId ? formData.clinicId as Id<"clinics"> : undefined,
       });
+      
       setShowAddForm(false);
+      setPatientImage(null);
       setFormData({
-        firstName: '',
-        lastName: '',
-        dateOfBirth: '',
-        gender: 'male',
-        phone: '',
-        email: '',
-        bloodType: '',
-        allergies: '',
-        medicalHistory: '',
+        firstName: '', lastName: '', dateOfBirth: '', gender: 'male',
+        phone: '', email: '', bloodType: '', allergies: '', medicalHistory: '', clinicId: '',
       });
     } catch (error) {
       console.error('Error creating patient:', error);
+      alert('Failed to create patient. Please try again.');
     }
   };
 
+  const resetForm = () => {
+    setShowAddForm(false);
+    setPatientImage(null);
+    setFormData({
+      firstName: '', lastName: '', dateOfBirth: '', gender: 'male',
+      phone: '', email: '', bloodType: '', allergies: '', medicalHistory: '', clinicId: '',
+    });
+  };
+
   return (
-    <div className="min-h-screen bg-[#0a0a0f] noise">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="border-b border-white/5 bg-black/30 backdrop-blur-xl sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-4xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Link 
-                href="/"
-                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5 text-white/60" />
+            <div className="flex items-center gap-3">
+              <Link href="/" className="p-2 hover:bg-gray-100 rounded-lg transition">
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
               </Link>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-                  <Users className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold text-white">Patient Records</h1>
-                  <p className="text-sm text-white/40">Manage patient portfolios</p>
-                </div>
+              <div>
+                <h1 className="font-bold text-gray-800">My Patients</h1>
+                <p className="text-xs text-gray-500">{filteredPatients.length} patients</p>
               </div>
             </div>
-
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 border border-green-500/20 rounded-full">
-                <Cloud className="w-3 h-3 text-green-400" />
-                <span className="text-xs text-green-400">Synced with Convex</span>
-              </div>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/settings"
+                className="p-2 hover:bg-gray-100 rounded-lg transition"
+              >
+                <Settings className="w-5 h-5 text-gray-600" />
+              </Link>
               <button
                 onClick={() => setShowAddForm(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg text-white font-medium hover:opacity-90 transition-opacity"
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm"
               >
                 <UserPlus className="w-4 h-4" />
-                Add Patient
+                <span className="hidden sm:inline font-medium">Add Patient</span>
               </button>
             </div>
+          </div>
+
+          {/* Search & Filter */}
+          <div className="mt-3 flex gap-2">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search patients..."
+                className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 rounded-full"
+                >
+                  <X className="w-4 h-4 text-gray-400" />
+                </button>
+              )}
+            </div>
+            {doctorClinics.length > 0 && (
+              <select
+                value={selectedClinicFilter}
+                onChange={(e) => setSelectedClinicFilter(e.target.value)}
+                className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 text-sm"
+              >
+                <option value="all">All Clinics</option>
+                {doctorClinics.map((clinic: any) => (
+                  <option key={clinic._id} value={clinic._id}>
+                    {clinic.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Search */}
-        <div className="mb-8">
-          <div className="relative max-w-md">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search patients by name or ID..."
-              className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30"
-            />
+      {/* Patient List */}
+      <main className="max-w-4xl mx-auto px-4 py-4 pb-24">
+        {filteredPatients.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Users className="w-10 h-10 text-gray-300" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-600 mb-2">
+              {doctorPatients.length === 0 ? 'No patients yet' : 'No patients found'}
+            </h3>
+            <p className="text-gray-400 mb-6">
+              {doctorPatients.length === 0 
+                ? 'Add your first patient to get started'
+                : 'Try a different search or filter'}
+            </p>
+            {doctorPatients.length === 0 && (
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="px-6 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition"
+              >
+                Add Patient
+              </button>
+            )}
           </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Patient List */}
-          <div className="lg:col-span-1 space-y-3">
-            <h2 className="text-lg font-semibold text-white mb-4">
-              {searchTerm ? 'Search Results' : 'All Patients'} 
-              <span className="text-white/40 ml-2">({displayPatients?.length || 0})</span>
-            </h2>
-
-            {patients === undefined ? (
-              <div className="p-8 text-center text-white/40 bg-white/5 rounded-xl border border-white/5">
-                <div className="w-8 h-8 border-2 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin mx-auto mb-4" />
-                <p>Loading patients...</p>
-              </div>
-            ) : displayPatients?.length === 0 ? (
-              <div className="p-8 text-center text-white/40 bg-white/5 rounded-xl border border-white/5">
-                <Users className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                <p>No patients found</p>
-                <button
-                  onClick={() => setShowAddForm(true)}
-                  className="mt-4 text-cyan-400 hover:text-cyan-300 text-sm"
-                >
-                  Add your first patient
-                </button>
-              </div>
-            ) : (
-              displayPatients?.map((patient) => (
-                <button
-                  key={patient.patientId}
-                  onClick={() => setSelectedPatient(patient.patientId)}
-                  className={`w-full p-4 rounded-xl border transition-all text-left ${
-                    selectedPatient === patient.patientId
-                      ? 'bg-cyan-500/10 border-cyan-500/30'
-                      : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/10'
-                  }`}
+        ) : (
+          <div className="space-y-3">
+            {filteredPatients.map((patient: any) => (
+              <div
+                key={patient._id}
+                className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm"
+              >
+                <div
+                  onClick={() => setSelectedPatient(selectedPatient?._id === patient._id ? null : patient)}
+                  className="p-4 cursor-pointer hover:bg-gray-50 transition"
                 >
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-medium text-white">
-                        {patient.firstName} {patient.lastName}
-                      </h3>
-                      <p className="text-sm text-white/40">{patient.patientId}</p>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-white/30">
-                        <span className="capitalize">{patient.gender}</span>
-                        <span>•</span>
-                        <span>DOB: {patient.dateOfBirth}</span>
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-bold">
+                        {patient.firstName[0]}{patient.lastName[0]}
                       </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-white/20" />
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-
-          {/* Patient Portfolio */}
-          <div className="lg:col-span-2">
-            {!selectedPatient ? (
-              <div className="p-12 text-center text-white/40 bg-white/5 rounded-2xl border border-white/5">
-                <FileText className="w-16 h-16 mx-auto mb-4 opacity-30" />
-                <p className="text-lg">Select a patient to view their portfolio</p>
-              </div>
-            ) : portfolio === undefined ? (
-              <div className="p-12 text-center text-white/40 bg-white/5 rounded-2xl border border-white/5">
-                <div className="w-8 h-8 border-2 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin mx-auto mb-4" />
-                <p>Loading patient data...</p>
-              </div>
-            ) : portfolio ? (
-              <div className="space-y-6">
-                {/* Patient Info Card */}
-                <div className="p-6 bg-gradient-to-br from-white/5 to-white/[0.02] rounded-2xl border border-white/10">
-                  <div className="flex items-start justify-between mb-6">
-                    <div>
-                      <h2 className="text-2xl font-bold text-white">
-                        {portfolio.patient.firstName} {portfolio.patient.lastName}
-                      </h2>
-                      <p className="text-white/40">{portfolio.patient.patientId}</p>
-                    </div>
-                    <Link
-                      href="/?tab=analyze"
-                      className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg text-white font-medium hover:opacity-90 transition-opacity"
-                    >
-                      <CheckCircle className="w-4 h-4" />
-                      Analyze Image
-                    </Link>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="p-3 bg-white/5 rounded-xl">
-                      <div className="flex items-center gap-2 text-white/40 text-sm mb-1">
-                        <Calendar className="w-4 h-4" />
-                        Date of Birth
-                      </div>
-                      <p className="text-white">{portfolio.patient.dateOfBirth}</p>
-                    </div>
-                    <div className="p-3 bg-white/5 rounded-xl">
-                      <div className="flex items-center gap-2 text-white/40 text-sm mb-1">
-                        <Users className="w-4 h-4" />
-                        Gender
-                      </div>
-                      <p className="text-white capitalize">{portfolio.patient.gender}</p>
-                    </div>
-                    {portfolio.patient.bloodType && (
-                      <div className="p-3 bg-white/5 rounded-xl">
-                        <div className="flex items-center gap-2 text-white/40 text-sm mb-1">
-                          <Droplets className="w-4 h-4" />
-                          Blood Type
-                        </div>
-                        <p className="text-white">{portfolio.patient.bloodType}</p>
-                      </div>
-                    )}
-                    {portfolio.patient.phone && (
-                      <div className="p-3 bg-white/5 rounded-xl">
-                        <div className="flex items-center gap-2 text-white/40 text-sm mb-1">
-                          <Phone className="w-4 h-4" />
-                          Phone
-                        </div>
-                        <p className="text-white">{portfolio.patient.phone}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {portfolio.patient.allergies && portfolio.patient.allergies.length > 0 && (
-                    <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
-                      <div className="flex items-center gap-2 text-red-400 text-sm mb-2">
-                        <AlertCircle className="w-4 h-4" />
-                        Allergies
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {portfolio.patient.allergies.map((allergy, i) => (
-                          <span key={i} className="px-2 py-1 bg-red-500/20 rounded text-red-300 text-sm">
-                            {allergy}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {portfolio.patient.medicalHistory && (
-                    <div className="mt-4 p-3 bg-white/5 rounded-xl">
-                      <div className="text-white/40 text-sm mb-2">Medical History</div>
-                      <p className="text-white/80 text-sm">{portfolio.patient.medicalHistory}</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Visit History */}
-                <div className="p-6 bg-white/5 rounded-2xl border border-white/5">
-                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <Calendar className="w-5 h-5 text-cyan-400" />
-                    Visit History ({portfolio.sessions.length})
-                  </h3>
-                  {portfolio.sessions.length === 0 ? (
-                    <p className="text-white/40 text-center py-4">No visits recorded</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {portfolio.sessions.slice(0, 5).map((session) => (
-                        <div key={session.sessionId} className="p-4 bg-white/5 rounded-xl">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-white font-medium">
-                                {new Date(session.visitDate).toLocaleDateString()}
-                              </p>
-                              <p className="text-sm text-white/40">
-                                {session.chiefComplaint || 'General consultation'}
-                              </p>
-                            </div>
-                            <span className={`px-2 py-1 rounded text-xs ${
-                              session.status === 'completed' 
-                                ? 'bg-green-500/20 text-green-400'
-                                : session.status === 'ongoing'
-                                ? 'bg-yellow-500/20 text-yellow-400'
-                                : 'bg-red-500/20 text-red-400'
-                            }`}>
-                              {session.status}
-                            </span>
-                          </div>
-                          {session.segmentationResult && (
-                            <p className="mt-2 text-sm text-white/60">
-                              Analysis: {session.segmentationResult}
-                            </p>
+                      <div>
+                        <h3 className="font-semibold text-gray-800">
+                          {patient.firstName} {patient.lastName}
+                        </h3>
+                        <div className="flex items-center gap-2 text-sm text-gray-500">
+                          <span>{patient.phone || patient.email || 'No contact'}</span>
+                          {patient.clinicId && (
+                            <>
+                              <span>•</span>
+                              <span className="flex items-center gap-1">
+                                <Building2 className="w-3 h-3" />
+                                {getClinicName(patient.clinicId)}
+                              </span>
+                            </>
                           )}
                         </div>
-                      ))}
+                      </div>
                     </div>
-                  )}
+                    <ChevronRight className={`w-5 h-5 text-gray-400 transition-transform ${selectedPatient?._id === patient._id ? 'rotate-90' : ''}`} />
+                  </div>
                 </div>
 
-                {/* Medications */}
-                <div className="p-6 bg-white/5 rounded-2xl border border-white/5">
-                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-purple-400" />
-                    Medications ({portfolio.medications.length})
-                  </h3>
-                  {portfolio.medications.length === 0 ? (
-                    <p className="text-white/40 text-center py-4">No medications prescribed</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {portfolio.medications.slice(0, 5).map((med) => (
-                        <div key={med.medicationId} className="p-4 bg-white/5 rounded-xl">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-white font-medium">{med.drugName}</p>
-                              <p className="text-sm text-white/60">
-                                {med.dosage} • {med.frequency} • {med.duration}
-                              </p>
-                              {med.instructions && (
-                                <p className="text-xs text-white/40 mt-1">{med.instructions}</p>
-                              )}
-                            </div>
-                            <p className="text-xs text-white/30">
-                              {new Date(med.prescribedAt).toLocaleDateString()}
-                            </p>
-                          </div>
+                {/* Expanded Details */}
+                {selectedPatient?._id === patient._id && (
+                  <div className="px-4 pb-4 border-t border-gray-100 pt-4 bg-gray-50">
+                    {/* Clinic Badge */}
+                    {patient.clinicId && (
+                      <div className="mb-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm">
+                        <Building2 className="w-4 h-4" />
+                        {getClinicName(patient.clinicId)}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                      <div className="text-center p-3 bg-white rounded-xl border border-gray-100">
+                        <Calendar className="w-4 h-4 mx-auto mb-1 text-blue-500" />
+                        <p className="text-xs text-gray-500">DOB</p>
+                        <p className="text-sm font-medium text-gray-800">{patient.dateOfBirth || 'N/A'}</p>
+                      </div>
+                      <div className="text-center p-3 bg-white rounded-xl border border-gray-100">
+                        <Users className="w-4 h-4 mx-auto mb-1 text-blue-500" />
+                        <p className="text-xs text-gray-500">Gender</p>
+                        <p className="text-sm font-medium text-gray-800 capitalize">{patient.gender}</p>
+                      </div>
+                      <div className="text-center p-3 bg-white rounded-xl border border-gray-100">
+                        <Droplets className="w-4 h-4 mx-auto mb-1 text-red-500" />
+                        <p className="text-xs text-gray-500">Blood</p>
+                        <p className="text-sm font-medium text-gray-800">{patient.bloodType || 'N/A'}</p>
+                      </div>
+                      <div className="text-center p-3 bg-white rounded-xl border border-gray-100">
+                        <Mail className="w-4 h-4 mx-auto mb-1 text-blue-500" />
+                        <p className="text-xs text-gray-500">Email</p>
+                        <p className="text-sm font-medium text-gray-800 truncate">{patient.email || 'N/A'}</p>
+                      </div>
+                    </div>
+
+                    {patient.allergies && patient.allergies.length > 0 && (
+                      <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl">
+                        <div className="flex items-center gap-2 text-red-600 text-xs font-medium mb-1">
+                          <AlertCircle className="w-4 h-4" />
+                          Allergies
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                        <p className="text-sm text-red-700">{patient.allergies.join(', ')}</p>
+                      </div>
+                    )}
 
-                {/* Summaries */}
-                <div className="p-6 bg-white/5 rounded-2xl border border-white/5">
-                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-blue-400" />
-                    Visit Summaries ({portfolio.summaries.length})
-                  </h3>
-                  {portfolio.summaries.length === 0 ? (
-                    <p className="text-white/40 text-center py-4">No summaries recorded</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {portfolio.summaries.slice(0, 3).map((summary) => (
-                        <div key={summary.summaryId} className="p-4 bg-white/5 rounded-xl">
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-white font-medium">{summary.diagnosis}</p>
-                            <p className="text-xs text-white/30">
-                              {new Date(summary.createdAt).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <p className="text-sm text-white/60">{summary.findings}</p>
-                          {summary.recommendations && (
-                            <p className="text-sm text-cyan-400/80 mt-2">
-                              Recommendations: {summary.recommendations}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                    {patient.medicalHistory && (
+                      <div className="mb-4 p-3 bg-white border border-gray-100 rounded-xl">
+                        <p className="text-xs text-gray-500 font-medium mb-1">Medical History</p>
+                        <p className="text-sm text-gray-700">{patient.medicalHistory}</p>
+                      </div>
+                    )}
 
-                {/* Medical Images */}
-                <div className="p-6 bg-white/5 rounded-2xl border border-white/5">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                      <Image className="w-5 h-5 text-green-400" />
-                      Medical Images ({patientImages?.length || 0})
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={imageType}
-                        onChange={(e) => setImageType(e.target.value as any)}
-                        className="px-3 py-1.5 bg-white/10 border border-white/10 rounded-lg text-sm text-white"
+                    {/* Action Buttons */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setShowContactModal(patient)}
+                        className="flex-1 flex items-center justify-center gap-2 py-3 bg-blue-50 text-blue-600 rounded-xl font-medium hover:bg-blue-100 transition"
                       >
-                        <option value="photo">Photo</option>
-                        <option value="xray">X-Ray</option>
-                        <option value="ct">CT Scan</option>
-                        <option value="mri">MRI</option>
-                        <option value="ultrasound">Ultrasound</option>
-                        <option value="other">Other</option>
-                      </select>
-                      <label className="flex items-center gap-2 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 rounded-lg cursor-pointer transition-colors">
-                        <Upload className="w-4 h-4 text-green-400" />
-                        <span className="text-sm text-green-400">{uploading ? 'Uploading...' : 'Upload'}</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageUpload}
-                          disabled={uploading}
-                          className="hidden"
-                        />
-                      </label>
+                        <MessageCircle className="w-4 h-4" />
+                        Contact
+                      </button>
+                      <button
+                        onClick={() => setShowDeleteConfirm(patient.patientId)}
+                        className="p-3 bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-                  
-                  {!patientImages || patientImages.length === 0 ? (
-                    <p className="text-white/40 text-center py-8">No images uploaded yet</p>
-                  ) : (
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                      {patientImages.map((img) => (
-                        <div key={img.imageId} className="relative group">
-                          <img
-                            src={img.url || ''}
-                            alt={img.fileName}
-                            className="w-full h-32 object-cover rounded-xl border border-white/10"
-                          />
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center gap-2">
-                            <span className="text-xs text-white bg-white/20 px-2 py-1 rounded">{img.imageType}</span>
-                            <button
-                              onClick={() => deleteImage({ imageId: img.imageId })}
-                              className="p-1.5 bg-red-500/80 rounded-lg hover:bg-red-500"
-                            >
-                              <Trash2 className="w-4 h-4 text-white" />
-                            </button>
-                          </div>
-                          <p className="text-xs text-white/40 mt-1 truncate">{img.fileName}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
-            ) : (
-              <div className="p-12 text-center text-white/40 bg-white/5 rounded-2xl border border-white/5">
-                <p>Patient not found</p>
-              </div>
-            )}
+            ))}
           </div>
-        </div>
+        )}
       </main>
 
       {/* Add Patient Modal */}
       {showAddForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[#12121a] border border-white/10 rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-white">Add New Patient</h2>
-              <button
-                onClick={() => setShowAddForm(false)}
-                className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-              >
-                <X className="w-5 h-5 text-white/60" />
+        <div 
+          className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center"
+          onClick={resetForm}
+        >
+          <div 
+            className="w-full max-w-lg bg-white rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white p-4 border-b border-gray-100 flex items-center justify-between z-10">
+              <h2 className="font-bold text-gray-800 text-lg">Add New Patient</h2>
+              <button onClick={resetForm} className="p-2 hover:bg-gray-100 rounded-lg transition">
+                <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
+            <form onSubmit={handleAddPatient} className="p-4 space-y-4">
+              {/* Patient Photo */}
+              <div className="flex justify-center">
+                <div 
+                  onClick={() => imageInputRef.current?.click()}
+                  className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center cursor-pointer hover:bg-gray-200 transition overflow-hidden border-2 border-dashed border-gray-300"
+                >
+                  {patientImage ? (
+                    <img src={patientImage} alt="Patient" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="text-center">
+                      <Camera className="w-6 h-6 mx-auto text-gray-400" />
+                      <p className="text-xs text-gray-400 mt-1">Photo</p>
+                    </div>
+                  )}
+                </div>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="user"
+                  onChange={handleImageSelect}
+                  className="hidden"
+                />
+              </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              {/* Clinic/Hospital Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <Building2 className="w-4 h-4 inline mr-1" />
+                  Clinic / Hospital *
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    required
+                    value={formData.clinicId}
+                    onChange={(e) => setFormData({ ...formData, clinicId: e.target.value })}
+                    className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
+                  >
+                    <option value="">Select where patient comes from</option>
+                    {doctorClinics.map((clinic: any) => (
+                      <option key={clinic._id} value={clinic._id}>
+                        {clinic.name} ({clinic.type})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddClinic(true)}
+                    className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition"
+                    title="Add new clinic"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </div>
+                {doctorClinics.length === 0 && (
+                  <p className="text-xs text-orange-600 mt-1">
+                    Please add a clinic first before adding patients
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-white/60 mb-2">First Name *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
                   <input
                     type="text"
                     required
                     value={formData.firstName}
                     onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500/50"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-white/60 mb-2">Last Name *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
                   <input
                     type="text"
                     required
                     value={formData.lastName}
                     onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500/50"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-white/60 mb-2">Date of Birth *</label>
-                  <input
-                    type="date"
-                    required
-                    value={formData.dateOfBirth}
-                    onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
-                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-white/60 mb-2">Gender *</label>
-                  <select
-                    value={formData.gender}
-                    onChange={(e) => setFormData({ ...formData, gender: e.target.value as 'male' | 'female' | 'other' })}
-                    className="w-full px-4 py-3 bg-[#1a1a2e] border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500/50"
-                  >
-                    <option value="male" className="bg-[#1a1a2e] text-white">Male</option>
-                    <option value="female" className="bg-[#1a1a2e] text-white">Female</option>
-                    <option value="other" className="bg-[#1a1a2e] text-white">Other</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-white/60 mb-2">Phone</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
                   <input
                     type="tel"
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500/50"
+                    placeholder="+1234567890"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-white/60 mb-2">Email</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                   <input
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500/50"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-white/60 mb-2">Blood Type</label>
-                  <select
-                    value={formData.bloodType}
-                    onChange={(e) => setFormData({ ...formData, bloodType: e.target.value })}
-                    className="w-full px-4 py-3 bg-[#1a1a2e] border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500/50"
-                  >
-                    <option value="" className="bg-[#1a1a2e] text-white/50">Select...</option>
-                    <option value="A+" className="bg-[#1a1a2e] text-white">A+</option>
-                    <option value="A-" className="bg-[#1a1a2e] text-white">A-</option>
-                    <option value="B+" className="bg-[#1a1a2e] text-white">B+</option>
-                    <option value="B-" className="bg-[#1a1a2e] text-white">B-</option>
-                    <option value="AB+" className="bg-[#1a1a2e] text-white">AB+</option>
-                    <option value="AB-" className="bg-[#1a1a2e] text-white">AB-</option>
-                    <option value="O+" className="bg-[#1a1a2e] text-white">O+</option>
-                    <option value="O-" className="bg-[#1a1a2e] text-white">O-</option>
-                  </select>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
+                  <input
+                    type="date"
+                    value={formData.dateOfBirth}
+                    onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm text-white/60 mb-2">Allergies (comma-separated)</label>
-                  <input
-                    type="text"
-                    value={formData.allergies}
-                    onChange={(e) => setFormData({ ...formData, allergies: e.target.value })}
-                    placeholder="Penicillin, Peanuts..."
-                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-cyan-500/50"
-                  />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
+                  <select
+                    value={formData.gender}
+                    onChange={(e) => setFormData({ ...formData, gender: e.target.value as any })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
+                  >
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm text-white/60 mb-2">Medical History</label>
-                <textarea
-                  value={formData.medicalHistory}
-                  onChange={(e) => setFormData({ ...formData, medicalHistory: e.target.value })}
-                  rows={3}
-                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 resize-none"
+                <label className="block text-sm font-medium text-gray-700 mb-1">Blood Type</label>
+                <select
+                  value={formData.bloodType}
+                  onChange={(e) => setFormData({ ...formData, bloodType: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
+                >
+                  <option value="">Select</option>
+                  <option value="A+">A+</option>
+                  <option value="A-">A-</option>
+                  <option value="B+">B+</option>
+                  <option value="B-">B-</option>
+                  <option value="AB+">AB+</option>
+                  <option value="AB-">AB-</option>
+                  <option value="O+">O+</option>
+                  <option value="O-">O-</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Allergies</label>
+                <input
+                  type="text"
+                  value={formData.allergies}
+                  onChange={(e) => setFormData({ ...formData, allergies: e.target.value })}
+                  placeholder="Separate with commas"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
                 />
               </div>
 
-              <div className="flex gap-3 pt-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Medical History</label>
+                <textarea
+                  value={formData.medicalHistory}
+                  onChange={(e) => setFormData({ ...formData, medicalHistory: e.target.value })}
+                  rows={2}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddForm(false)}
-                  className="flex-1 px-4 py-3 bg-white/10 rounded-xl text-white hover:bg-white/20 transition-colors"
+                  onClick={resetForm}
+                  className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl text-white font-medium hover:opacity-90 transition-opacity"
+                  disabled={!formData.clinicId}
+                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition disabled:opacity-50"
                 >
                   Add Patient
                 </button>
@@ -672,6 +624,187 @@ export default function PatientsPage() {
           </div>
         </div>
       )}
+
+      {/* Add Clinic Modal */}
+      {showAddClinic && (
+        <div 
+          className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4"
+          onClick={() => setShowAddClinic(false)}
+        >
+          <div 
+            className="w-full max-w-md bg-white rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-bold text-gray-800">Add New Clinic/Hospital</h3>
+              <button onClick={() => setShowAddClinic(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <form onSubmit={handleAddClinic} className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={newClinicData.name}
+                  onChange={(e) => setNewClinicData({ ...newClinicData, name: e.target.value })}
+                  placeholder="e.g., City Hospital"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
+                <select
+                  value={newClinicData.type}
+                  onChange={(e) => setNewClinicData({ ...newClinicData, type: e.target.value as any })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
+                >
+                  <option value="clinic">Clinic</option>
+                  <option value="hospital">Hospital</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                <input
+                  type="text"
+                  value={newClinicData.address}
+                  onChange={(e) => setNewClinicData({ ...newClinicData, address: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                <input
+                  type="tel"
+                  value={newClinicData.phone}
+                  onChange={(e) => setNewClinicData({ ...newClinicData, phone: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800"
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddClinic(false)}
+                  className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium"
+                >
+                  Add Clinic
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => setShowDeleteConfirm(null)}
+        >
+          <div 
+            className="w-full max-w-sm bg-white rounded-2xl p-6 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Trash2 className="w-8 h-8 text-red-500" />
+            </div>
+            <h3 className="font-bold text-gray-800 text-lg mb-2">Delete Patient?</h3>
+            <p className="text-gray-500 mb-6">
+              This will permanently delete the patient and all their records.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(null)}
+                className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDelete(showDeleteConfirm)}
+                className="flex-1 py-3 bg-red-500 text-white rounded-xl font-medium"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Contact Modal */}
+      {showContactModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center"
+          onClick={() => { setShowContactModal(null); setContactMessage(''); }}
+        >
+          <div 
+            className="w-full max-w-md bg-white rounded-t-2xl sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-bold text-gray-800">Contact {showContactModal.firstName}</h3>
+              <button onClick={() => { setShowContactModal(null); setContactMessage(''); }} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <textarea
+                value={contactMessage}
+                onChange={(e) => setContactMessage(e.target.value)}
+                placeholder="Type your message..."
+                rows={3}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 resize-none"
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => sendWhatsApp(showContactModal)}
+                  disabled={!showContactModal.phone}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 bg-green-500 text-white rounded-xl font-medium disabled:opacity-50"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  WhatsApp
+                </button>
+                <button
+                  onClick={() => sendEmail(showContactModal)}
+                  disabled={!showContactModal.email}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 bg-blue-500 text-white rounded-xl font-medium disabled:opacity-50"
+                >
+                  <Mail className="w-4 h-4" />
+                  Email
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom Navigation - Mobile */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 sm:hidden safe-bottom">
+        <div className="flex justify-around py-2">
+          <Link href="/" className="flex flex-col items-center gap-1 p-2 text-gray-400">
+            <Home className="w-5 h-5" />
+            <span className="text-xs">Home</span>
+          </Link>
+          <button className="flex flex-col items-center gap-1 p-2 text-blue-600">
+            <Users className="w-5 h-5" />
+            <span className="text-xs font-medium">Patients</span>
+          </button>
+          <button 
+            onClick={() => setShowAddForm(true)}
+            className="flex flex-col items-center gap-1 p-2 text-gray-400"
+          >
+            <UserPlus className="w-5 h-5" />
+            <span className="text-xs">Add</span>
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }

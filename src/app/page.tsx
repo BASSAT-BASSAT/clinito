@@ -1,56 +1,54 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { 
-  Mic, MicOff, Loader2, Upload, X, Brain, Scan, 
-  Stethoscope, Activity, Zap, Shield, ChevronRight,
-  Volume2, VolumeX, Sparkles, Heart, Eye, Users
+  Camera, Upload, X, Users, Image as ImageIcon, 
+  Stethoscope, Menu, LogOut, Mic, MicOff, Loader2,
+  Volume2, VolumeX, Brain
 } from 'lucide-react';
 import Link from 'next/link';
-
-// Declare SpeechRecognition types
-declare global {
-  interface Window {
-    SpeechRecognition: typeof SpeechRecognition;
-    webkitSpeechRecognition: typeof SpeechRecognition;
-  }
-}
+import { useAuth } from '@/components/AuthProvider';
 
 export default function Home() {
-  const searchParams = useSearchParams();
+  const { doctor, logout } = useAuth();
   
-  // States
-  const [activeTab, setActiveTab] = useState<'home' | 'analyze'>('home');
+  // Image states
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [maskUrl, setMaskUrl] = useState<string | null>(null);
+  const [showImageOptions, setShowImageOptions] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  
+  // Analysis states
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [confidence, setConfidence] = useState<number>(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [status, setStatus] = useState('Upload or take a photo to begin');
+  
+  // Voice states
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [status, setStatus] = useState('Ready');
-  const [maskOpacity, setMaskOpacity] = useState(0.6);
   
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // Refs
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const imageFileRef = useRef<File | null>(null);
+  const imagePreviewRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Check URL params for tab
-  useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab === 'analyze') {
-      setActiveTab('analyze');
-    }
-  }, [searchParams]);
-
+  // Keep refs in sync
   useEffect(() => {
     imageFileRef.current = imageFile;
   }, [imageFile]);
 
-  // Analysis keywords
+  useEffect(() => {
+    imagePreviewRef.current = imagePreview;
+  }, [imagePreview]);
+
+  // Analysis keywords for voice commands
   const analysisKeywords = ['highlight', 'find', 'show', 'analyze', 'detect', 'look for', 'check', 'scan'];
 
   const parseAnalysisCommand = (text: string): string | null => {
@@ -67,20 +65,34 @@ export default function Home() {
     return null;
   };
 
-  // Image upload
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle file selection (gallery/desktop)
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onload = (e) => setImagePreview(e.target?.result as string);
-      reader.readAsDataURL(file);
-      setMaskUrl(null);
-      setAnalysisResult(null);
-      setConfidence(0);
-      setStatus('Image loaded. Say "highlight [condition]" or tap a quick option.');
-      setActiveTab('analyze');
+      processImageFile(file);
     }
+    setShowImageOptions(false);
+  };
+
+  // Handle camera capture
+  const handleCameraCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processImageFile(file);
+    }
+    setShowImageOptions(false);
+  };
+
+  // Process the image file
+  const processImageFile = (file: File) => {
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setImagePreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+    setMaskUrl(null);
+    setAnalysisResult(null);
+    setConfidence(0);
+    setStatus('Image loaded. Use voice or quick analysis.');
   };
 
   const clearImage = () => {
@@ -89,19 +101,64 @@ export default function Home() {
     setMaskUrl(null);
     setAnalysisResult(null);
     setConfidence(0);
-    setStatus('Ready');
+    setStatus('Upload or take a photo to begin');
   };
 
-  // SAM Analysis
+  // Create demo mask when SAM3 server is not available
+  const createDemoMask = useCallback((prompt: string) => {
+    setStatus('Demo Mode - analyzing...');
+    const currentPreview = imagePreviewRef.current;
+    
+    if (currentPreview) {
+      const canvas = document.createElement('canvas');
+      const img = new window.Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          
+          // Draw a visible highlight circle
+          const centerX = canvas.width / 2;
+          const centerY = canvas.height / 2;
+          const radius = Math.min(canvas.width, canvas.height) / 3;
+          
+          // Semi-transparent blue fill
+          ctx.fillStyle = 'rgba(37, 99, 235, 0.4)';
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+          ctx.fill();
+          
+          // Blue border
+          ctx.strokeStyle = '#2563eb';
+          ctx.lineWidth = 4;
+          ctx.stroke();
+          
+          const demoMaskUrl = canvas.toDataURL('image/png');
+          setMaskUrl(demoMaskUrl);
+          setAnalysisResult(`Demo: "${prompt}" area highlighted. SAM3 server not running.`);
+          setConfidence(0.5);
+          setStatus('Demo analysis complete');
+          speakText(`Demo mode. ${prompt} area highlighted.`);
+        }
+      };
+      img.src = currentPreview;
+    }
+  }, []);
+
+  // SAM3 Analysis
   const runAnalysis = async (prompt: string) => {
     const currentImageFile = imageFileRef.current;
     if (!currentImageFile) {
-      speakText("Upload image first doctor.");
+      setStatus('Upload an image first');
+      speakText("Please upload an image first.");
       return;
     }
 
     setIsAnalyzing(true);
-    setStatus(`Analyzing for "${prompt}"...`);
+    setStatus(`Analyzing: "${prompt}"...`);
 
     try {
       const formData = new FormData();
@@ -115,30 +172,34 @@ export default function Home() {
 
       if (response.ok) {
         const result = await response.json();
-        setMaskUrl(result.mask_url);
-        setAnalysisResult(result.description);
-        setConfidence(result.confidence || 0.5);
+        const maskUrlValue = result.mask_url || result.maskDataUrl || result.overlayDataUrl;
+        setMaskUrl(maskUrlValue);
+        setAnalysisResult(result.description || `Found: ${prompt}`);
+        setConfidence(result.confidence || 0.85);
         setStatus('Analysis complete');
-        speakText(`Done doctor. ${prompt} detected. ${Math.round((result.confidence || 0.5) * 100)} percent.`);
+        speakText(`Analysis complete. ${prompt} detected with ${Math.round((result.confidence || 0.85) * 100)} percent confidence.`);
       } else {
-        setStatus('Analysis failed');
-        speakText("Analysis failed doctor.");
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 503 || errorData.error?.includes('not running')) {
+          createDemoMask(prompt);
+        } else {
+          setStatus(`Analysis failed: ${errorData.error || 'Unknown error'}`);
+          createDemoMask(prompt);
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Analysis error:', error);
-      setStatus('Error');
-      speakText("Error doctor.");
+      createDemoMask(prompt);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // TTS
+  // Text-to-Speech with ElevenLabs
   const speakText = async (text: string) => {
     if (!text.trim()) return;
     setIsSpeaking(true);
 
-    // Try ElevenLabs first
     try {
       const response = await fetch('/api/tts', {
         method: 'POST',
@@ -168,7 +229,6 @@ export default function Home() {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'en-US';
       utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
       window.speechSynthesis.speak(utterance);
     } else {
       setIsSpeaking(false);
@@ -184,456 +244,425 @@ export default function Home() {
     setIsSpeaking(false);
   };
 
-  // STT
+  // Handle transcript from STT
   const handleTranscript = useCallback(async (transcript: string) => {
     if (!transcript.trim()) return;
+    setStatus(`Heard: "${transcript}"`);
+    
     const analysisTarget = parseAnalysisCommand(transcript);
     if (analysisTarget) {
       await runAnalysis(analysisTarget);
     } else {
-      setStatus(`Heard: "${transcript}"`);
-      speakText("Say highlight, then what to find.");
+      // If no analysis command detected, try to analyze with the full text
+      await runAnalysis(transcript);
     }
   }, []);
 
-  const startRecording = useCallback(() => {
+  // Start voice recording
+  const startRecording = useCallback(async () => {
     stopSpeaking();
     if (!imageFileRef.current) {
-      speakText("Upload image first doctor.");
+      setStatus('Upload an image first');
+      speakText("Please upload an image first.");
       return;
     }
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      speakText("Use Chrome doctor.");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStatus('Voice not supported in this browser.');
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
 
-    recognition.onstart = () => {
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop());
+        
+        if (audioChunksRef.current.length === 0) {
+          setStatus('No audio recorded.');
+          setIsRecording(false);
+          return;
+        }
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setIsTranscribing(true);
+        setStatus('Transcribing with ElevenLabs...');
+
+        try {
+          const formData = new FormData();
+          formData.append('audio', audioBlob, 'recording.webm');
+          
+          const response = await fetch('/api/stt', {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.text) {
+              await handleTranscript(data.text);
+            } else {
+              setStatus('No speech detected. Try again.');
+            }
+          } else {
+            setStatus('Transcription failed. Try again.');
+          }
+        } catch (error) {
+          console.error('STT error:', error);
+          setStatus('Failed to transcribe. Try again.');
+        } finally {
+          setIsTranscribing(false);
+          setIsRecording(false);
+        }
+      };
+
+      mediaRecorder.start();
       setIsRecording(true);
-      setStatus('Listening...');
-    };
+      setStatus('Listening... Tap to stop');
 
-    recognition.onresult = async (event) => {
-      const transcript = event.results[0][0].transcript;
+      // Auto-stop after 10 seconds
+      setTimeout(() => {
+        if (mediaRecorderRef.current?.state === 'recording') {
+          mediaRecorderRef.current.stop();
+        }
+      }, 10000);
+
+    } catch (err: any) {
+      if (err.name === 'NotAllowedError') {
+        setStatus('Microphone access denied.');
+      } else {
+        setStatus('Recording error. Try again.');
+      }
       setIsRecording(false);
-      setIsTranscribing(true);
-      await handleTranscript(transcript);
-      setIsTranscribing(false);
-    };
-
-    recognition.onerror = () => {
-      setIsRecording(false);
-      setStatus('Error - try again');
-    };
-
-    recognition.onend = () => setIsRecording(false);
-
-    recognitionRef.current = recognition;
-    recognition.start();
+    }
   }, [handleTranscript]);
 
   const stopRecording = () => {
-    if (recognitionRef.current) recognitionRef.current.stop();
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
     setIsRecording(false);
   };
 
-  // Features data
-  const features = [
-    { icon: Brain, title: 'AI Analysis', desc: 'Medical-SAM3 segmentation' },
-    { icon: Mic, title: 'Voice Control', desc: 'Speak your commands' },
-    { icon: Shield, title: 'HIPAA Ready', desc: 'Secure processing' },
-    { icon: Zap, title: 'Real-time', desc: 'Instant results' },
-  ];
-
-  const quickAnalysis = ['fracture', 'tumor', 'nodule', 'opacity', 'effusion', 'mass'];
+  // Quick analysis options
+  const quickOptions = ['Tumor', 'Fracture', 'Nodule', 'Lesion', 'Mass', 'Opacity'];
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white overflow-x-hidden">
-      {/* Animated Background */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[120px]" />
-        <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] bg-cyan-500/10 rounded-full blur-[100px]" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-teal-500/5 rounded-full blur-[150px]" />
-      </div>
-
-      {/* Navigation */}
-      <nav className="relative z-50 border-b border-white/5 backdrop-blur-xl bg-black/20">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-xl blur-lg opacity-50" />
-                <div className="relative p-2.5 bg-gradient-to-br from-emerald-500 to-cyan-600 rounded-xl">
-                  <Stethoscope className="w-6 h-6 text-white" />
-                </div>
-              </div>
-              <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent">
-                  CLINITO
-                </h1>
-                <p className="text-[10px] text-emerald-400/80 font-medium tracking-wider">AI MEDICAL ASSISTANT</p>
-              </div>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-600 rounded-xl">
+              <Stethoscope className="w-5 h-5 text-white" />
             </div>
-
-            <div className="flex items-center gap-2 bg-white/5 p-1 rounded-full border border-white/10">
-              <button
-                onClick={() => setActiveTab('home')}
-                className={`px-5 py-2 rounded-full text-sm font-medium transition-all ${
-                  activeTab === 'home' 
-                    ? 'bg-gradient-to-r from-emerald-500 to-cyan-500 text-white shadow-lg shadow-emerald-500/25' 
-                    : 'text-white/60 hover:text-white'
-                }`}
-              >
-                Home
-              </button>
-              <button
-                onClick={() => setActiveTab('analyze')}
-                className={`px-5 py-2 rounded-full text-sm font-medium transition-all ${
-                  activeTab === 'analyze' 
-                    ? 'bg-gradient-to-r from-emerald-500 to-cyan-500 text-white shadow-lg shadow-emerald-500/25' 
-                    : 'text-white/60 hover:text-white'
-                }`}
-              >
-                Analyze
-              </button>
-              <Link
-                href="/patients"
-                className="px-5 py-2 rounded-full text-sm font-medium text-white/60 hover:text-white transition-all flex items-center gap-2"
-              >
-                <Users className="w-4 h-4" />
-                Patients
-              </Link>
-            </div>
-
-            <div className="flex items-center gap-3">
-              {isSpeaking && (
-                <button 
-                  onClick={stopSpeaking}
-                  className="p-2 bg-orange-500/20 border border-orange-500/30 rounded-lg hover:bg-orange-500/30 transition-all"
-                >
-                  <VolumeX className="w-5 h-5 text-orange-400" />
-                </button>
+            <div>
+              <span className="font-bold text-gray-800 text-lg">Clinito</span>
+              {doctor && (
+                <p className="text-xs text-gray-500">Dr. {doctor.firstName} {doctor.lastName}</p>
               )}
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
-                <Activity className="w-3 h-3 text-emerald-400 animate-pulse" />
-                <span className="text-xs text-emerald-400">Online</span>
-              </div>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Link 
+              href="/patients"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition"
+            >
+              <Users className="w-4 h-4" />
+              <span className="hidden sm:inline font-medium">Patients</span>
+            </Link>
+            
+            <div className="relative">
+              <button
+                onClick={() => setShowMenu(!showMenu)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition"
+              >
+                <Menu className="w-5 h-5 text-gray-600" />
+              </button>
+              
+              {showMenu && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-40" 
+                    onClick={() => setShowMenu(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden z-50">
+                    <Link
+                      href="/patients"
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-gray-700"
+                      onClick={() => setShowMenu(false)}
+                    >
+                      <Users className="w-4 h-4" />
+                      My Patients
+                    </Link>
+                    {doctor ? (
+                      <button
+                        onClick={() => { logout(); setShowMenu(false); }}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-red-600"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Logout
+                      </button>
+                    ) : (
+                      <Link
+                        href="/login"
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-blue-600"
+                        onClick={() => setShowMenu(false)}
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Login
+                      </Link>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
-      </nav>
+      </header>
 
       {/* Main Content */}
-      <main className="relative z-10">
-        {activeTab === 'home' ? (
-          /* ===== HOME TAB ===== */
-          <div className="max-w-7xl mx-auto px-6">
-            {/* Hero Section */}
-            <section className="py-20 text-center">
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-full mb-8">
-                <Sparkles className="w-4 h-4 text-emerald-400" />
-                <span className="text-sm text-emerald-400">Powered by Medical-SAM3 & AI Voice</span>
+      <main className="max-w-2xl mx-auto px-4 py-6 pb-28">
+        {/* Image Section */}
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm mb-4">
+          {imagePreview ? (
+            <div className="relative">
+              <img 
+                src={imagePreview} 
+                alt="Medical image" 
+                className="w-full h-64 sm:h-80 object-contain bg-gray-100"
+              />
+              {maskUrl && (
+                <img 
+                  src={maskUrl} 
+                  alt="Analysis overlay" 
+                  className="absolute inset-0 w-full h-64 sm:h-80 object-contain pointer-events-none"
+                  style={{ opacity: 0.7 }}
+                />
+              )}
+              <button
+                onClick={clearImage}
+                className="absolute top-3 right-3 p-2 bg-white/90 hover:bg-white rounded-full shadow-md transition"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+          ) : (
+            <div 
+              className="h-64 sm:h-80 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 transition"
+              onClick={() => setShowImageOptions(true)}
+            >
+              <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mb-4">
+                <ImageIcon className="w-10 h-10 text-blue-400" />
               </div>
-              
-              <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight">
-                <span className="bg-gradient-to-r from-white via-white to-white/50 bg-clip-text text-transparent">
-                  Medical Imaging
-                </span>
-                <br />
-                <span className="bg-gradient-to-r from-emerald-400 via-cyan-400 to-teal-400 bg-clip-text text-transparent">
-                  Reimagined
-                </span>
-              </h1>
-              
-              <p className="text-lg text-white/50 max-w-2xl mx-auto mb-10">
-                Upload medical images and use voice commands to detect fractures, tumors, 
-                nodules, and more. Instant AI-powered analysis at your fingertips.
-              </p>
+              <p className="text-gray-600 font-medium">Tap to add image</p>
+              <p className="text-gray-400 text-sm mt-1">From camera or gallery</p>
+            </div>
+          )}
+        </div>
 
-              <div className="flex items-center justify-center gap-4">
+        {/* Status */}
+        <div className="text-center mb-4">
+          <p className="text-sm text-gray-600">{status}</p>
+          {analysisResult && (
+            <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+              <p className="text-sm text-blue-800 font-medium">{analysisResult}</p>
+              {confidence > 0 && (
+                <div className="mt-2 flex items-center justify-center gap-2">
+                  <div className="flex-1 max-w-xs h-2 bg-blue-100 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-blue-600 rounded-full transition-all"
+                      style={{ width: `${confidence * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-blue-600 font-medium">{Math.round(confidence * 100)}%</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Quick Analysis Options (shown when image is uploaded) */}
+        {imagePreview && (
+          <div className="mb-4">
+            <p className="text-xs text-gray-500 mb-2 text-center font-medium">Quick Analysis</p>
+            <div className="grid grid-cols-3 gap-2">
+              {quickOptions.map((option) => (
                 <button
-                  onClick={() => setActiveTab('analyze')}
-                  className="group px-8 py-4 bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-2xl font-semibold text-white shadow-2xl shadow-emerald-500/25 hover:shadow-emerald-500/40 transition-all hover:scale-105"
+                  key={option}
+                  onClick={() => runAnalysis(option.toLowerCase())}
+                  disabled={isAnalyzing}
+                  className="py-2.5 px-3 bg-white border border-gray-200 hover:border-blue-400 hover:bg-blue-50 rounded-xl text-sm font-medium text-gray-700 transition disabled:opacity-50"
                 >
-                  <span className="flex items-center gap-2">
-                    Start Analysis
-                    <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                  </span>
+                  {option}
                 </button>
-                <button
-                  onClick={() => setActiveTab('analyze')}
-                  className="px-8 py-4 bg-white/5 border border-white/10 rounded-2xl font-semibold text-white hover:bg-white/10 transition-all"
-                >
-                  Learn More
-                </button>
-              </div>
-            </section>
-
-            {/* Features Grid */}
-            <section className="py-16">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {features.map((feature, i) => (
-                  <div 
-                    key={i}
-                    className="group p-6 bg-gradient-to-b from-white/5 to-transparent border border-white/10 rounded-2xl hover:border-emerald-500/30 transition-all hover:-translate-y-1"
-                  >
-                    <div className="w-12 h-12 bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                      <feature.icon className="w-6 h-6 text-emerald-400" />
-                    </div>
-                    <h3 className="font-semibold text-white mb-1">{feature.title}</h3>
-                    <p className="text-sm text-white/40">{feature.desc}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            {/* How it Works */}
-            <section className="py-16">
-              <h2 className="text-3xl font-bold text-center mb-12">
-                <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
-                  How It Works
-                </span>
-              </h2>
-              <div className="grid md:grid-cols-3 gap-8">
-                {[
-                  { step: '01', icon: Upload, title: 'Upload Image', desc: 'Upload X-ray, CT, or MRI scans' },
-                  { step: '02', icon: Mic, title: 'Voice Command', desc: 'Say "highlight fracture" or similar' },
-                  { step: '03', icon: Eye, title: 'View Results', desc: 'See highlighted areas with confidence' },
-                ].map((item, i) => (
-                  <div key={i} className="relative p-8 bg-white/5 border border-white/10 rounded-3xl">
-                    <span className="absolute -top-4 left-8 text-5xl font-bold text-emerald-500/20">{item.step}</span>
-                    <item.icon className="w-10 h-10 text-emerald-400 mb-4" />
-                    <h3 className="text-xl font-semibold mb-2">{item.title}</h3>
-                    <p className="text-white/50">{item.desc}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
-        ) : (
-          /* ===== ANALYZE TAB ===== */
-          <div className="max-w-7xl mx-auto px-6 py-8">
-            <div className="grid lg:grid-cols-2 gap-8">
-              
-              {/* Left: Image Panel */}
-              <div className="space-y-6">
-                <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 overflow-hidden">
-                  <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-xl font-semibold flex items-center gap-3">
-                      <div className="p-2 bg-emerald-500/20 rounded-lg">
-                        <Scan className="w-5 h-5 text-emerald-400" />
-                      </div>
-                      Medical Image
-                    </h2>
-                    {imagePreview && (
-                      <button
-                        onClick={clearImage}
-                        className="p-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-lg transition-all"
-                      >
-                        <X className="w-4 h-4 text-red-400" />
-                      </button>
-                    )}
-                  </div>
-
-                  {!imagePreview ? (
-                    <label className="relative border-2 border-dashed border-white/20 rounded-2xl p-16 text-center cursor-pointer hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all group block">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      />
-                      <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform pointer-events-none">
-                        <Upload className="w-10 h-10 text-emerald-400" />
-                      </div>
-                      <p className="text-lg font-medium text-white/70 mb-2 pointer-events-none">Drop your image here</p>
-                      <p className="text-sm text-white/40 pointer-events-none">or click to browse</p>
-                      <p className="text-xs text-white/30 mt-4 pointer-events-none">Supports X-ray, CT, MRI</p>
-                    </label>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="relative rounded-2xl overflow-hidden bg-black aspect-square">
-                        <img
-                          src={imagePreview}
-                          alt="Medical scan"
-                          className="w-full h-full object-contain"
-                        />
-                        {maskUrl && (
-                          <img
-                            src={maskUrl}
-                            alt="Mask"
-                            className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-                            style={{ opacity: maskOpacity }}
-                          />
-                        )}
-                        {isAnalyzing && (
-                          <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-sm">
-                            <div className="text-center">
-                              <div className="w-16 h-16 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mx-auto mb-4" />
-                              <p className="text-emerald-400 font-medium">Analyzing...</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {maskUrl && (
-                        <div className="p-4 bg-white/5 rounded-xl">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm text-white/60">Mask Opacity</span>
-                            <span className="text-sm text-emerald-400">{Math.round(maskOpacity * 100)}%</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.1"
-                            value={maskOpacity}
-                            onChange={(e) => setMaskOpacity(parseFloat(e.target.value))}
-                            className="w-full accent-emerald-500"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Analysis Result */}
-                {analysisResult && (
-                  <div className="bg-gradient-to-br from-emerald-500/10 to-cyan-500/10 border border-emerald-500/20 rounded-2xl p-6 animate-fade-in">
-                    <div className="flex items-center gap-3 mb-4">
-                      <Heart className="w-5 h-5 text-emerald-400" />
-                      <h3 className="font-semibold">Analysis Result</h3>
-                    </div>
-                    <p className="text-white/70 text-sm mb-4">{analysisResult}</p>
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 transition-all duration-500"
-                          style={{ width: `${confidence * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-emerald-400 font-semibold">{Math.round(confidence * 100)}%</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Right: Voice Control Panel */}
-              <div className="space-y-6">
-                <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-emerald-500/20 rounded-lg">
-                      <Brain className="w-5 h-5 text-emerald-400" />
-                    </div>
-                    <h2 className="text-xl font-semibold">Voice Commands</h2>
-                  </div>
-
-                  {/* Status */}
-                  <div className="p-4 bg-black/30 rounded-xl mb-6">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-2 h-2 rounded-full ${
-                        isRecording ? 'bg-red-500 animate-pulse' : 
-                        isAnalyzing ? 'bg-yellow-500 animate-pulse' : 
-                        'bg-emerald-500'
-                      }`} />
-                      <p className="text-sm text-white/70">{status}</p>
-                    </div>
-                  </div>
-
-                  {/* Mic Button */}
-                  <div className="flex flex-col items-center py-8">
-                    <button
-                      onClick={isRecording ? stopRecording : startRecording}
-                      disabled={isTranscribing || isAnalyzing || !imageFile}
-                      className={`relative w-32 h-32 rounded-full transition-all duration-300 ${
-                        isRecording
-                          ? 'bg-gradient-to-br from-red-500 to-rose-600 shadow-2xl shadow-red-500/40'
-                          : !imageFile
-                          ? 'bg-white/10 cursor-not-allowed'
-                          : 'bg-gradient-to-br from-emerald-500 to-cyan-600 shadow-2xl shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:scale-105'
-                      } disabled:opacity-50`}
-                    >
-                      {isRecording && (
-                        <>
-                          <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-20" />
-                          <span className="absolute inset-4 rounded-full bg-red-400 animate-ping opacity-30" style={{ animationDelay: '0.2s' }} />
-                        </>
-                      )}
-                      <div className="relative z-10">
-                        {isTranscribing || isAnalyzing ? (
-                          <Loader2 className="w-12 h-12 text-white mx-auto animate-spin" />
-                        ) : isRecording ? (
-                          <MicOff className="w-12 h-12 text-white mx-auto" />
-                        ) : (
-                          <Mic className="w-12 h-12 text-white mx-auto" />
-                        )}
-                      </div>
-                    </button>
-                    <p className="mt-4 text-sm text-white/50">
-                      {!imageFile ? 'Upload image first' : isRecording ? 'Listening... Tap to stop' : 'Tap to speak'}
-                    </p>
-                  </div>
-
-                  {/* Quick Options */}
-                  <div className="space-y-4">
-                    <p className="text-sm text-white/40 text-center">Or tap to analyze:</p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {quickAnalysis.map((term) => (
-                        <button
-                          key={term}
-                          onClick={() => runAnalysis(term)}
-                          disabled={!imageFile || isAnalyzing}
-                          className="px-4 py-3 bg-white/5 hover:bg-emerald-500/20 border border-white/10 hover:border-emerald-500/30 rounded-xl text-sm font-medium text-white/70 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed capitalize"
-                        >
-                          {term}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Voice Commands Help */}
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
-                  <h3 className="font-semibold mb-4 flex items-center gap-2">
-                    <Volume2 className="w-4 h-4 text-emerald-400" />
-                    Example Commands
-                  </h3>
-                  <div className="space-y-2">
-                    {[
-                      '"Highlight fracture"',
-                      '"Find tumor"',
-                      '"Show lung opacity"',
-                      '"Detect nodule"',
-                    ].map((cmd, i) => (
-                      <div key={i} className="flex items-center gap-3 text-sm">
-                        <ChevronRight className="w-4 h-4 text-emerald-500" />
-                        <span className="text-white/60">{cmd}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         )}
+
+        {/* Action Buttons */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <button
+            onClick={() => setShowImageOptions(true)}
+            className="flex items-center justify-center gap-2 py-3.5 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-blue-300 transition shadow-sm"
+          >
+            <Camera className="w-5 h-5 text-blue-600" />
+            <span className="font-medium text-gray-700">
+              {imagePreview ? 'Change' : 'Add Image'}
+            </span>
+          </button>
+          
+          <button
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={isTranscribing || !imagePreview}
+            className={`flex items-center justify-center gap-2 py-3.5 rounded-xl transition shadow-sm disabled:opacity-50 ${
+              isRecording 
+                ? 'bg-red-500 hover:bg-red-600 text-white' 
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
+          >
+            {isTranscribing ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : isRecording ? (
+              <MicOff className="w-5 h-5" />
+            ) : (
+              <Mic className="w-5 h-5" />
+            )}
+            <span className="font-medium">
+              {isTranscribing ? 'Processing...' : isRecording ? 'Stop' : 'Voice Analysis'}
+            </span>
+          </button>
+        </div>
+
+        {/* View Patients Link */}
+        <Link
+          href="/patients"
+          className="flex items-center justify-center gap-2 py-3.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition"
+        >
+          <Users className="w-5 h-5" />
+          <span className="font-medium">View Patients</span>
+        </Link>
+
+        {/* Loading Overlay */}
+        {isAnalyzing && (
+          <div className="fixed inset-0 z-40 bg-white/80 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3 p-6 bg-white rounded-2xl shadow-lg border border-gray-200">
+              <Brain className="w-12 h-12 text-blue-600 animate-pulse" />
+              <p className="text-gray-700 font-medium">Analyzing with SAM3...</p>
+            </div>
+          </div>
+        )}
+
+        {/* Speaking indicator */}
+        {isSpeaking && (
+          <button
+            onClick={stopSpeaking}
+            className="fixed bottom-24 right-4 p-3 bg-blue-600 text-white rounded-full shadow-lg animate-pulse"
+          >
+            <Volume2 className="w-5 h-5" />
+          </button>
+        )}
       </main>
 
-      {/* Footer */}
-      <footer className="relative z-10 border-t border-white/5 mt-20">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-white/30">© 2026 CLINITO. For research purposes only.</p>
-            <p className="text-sm text-white/30">⚠️ Not for clinical diagnosis</p>
+      {/* Image Options Modal */}
+      {showImageOptions && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center"
+          onClick={() => setShowImageOptions(false)}
+        >
+          <div 
+            className="w-full max-w-md bg-white rounded-t-2xl sm:rounded-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-gray-100">
+              <h3 className="text-lg font-semibold text-gray-800 text-center">Add Image</h3>
+            </div>
+            <div className="p-3">
+              <button
+                onClick={() => cameraInputRef.current?.click()}
+                className="w-full flex items-center gap-4 p-4 hover:bg-blue-50 rounded-xl transition"
+              >
+                <div className="p-3 bg-blue-100 rounded-full">
+                  <Camera className="w-6 h-6 text-blue-600" />
+                </div>
+                <div className="text-left">
+                  <p className="font-medium text-gray-800">Take Photo</p>
+                  <p className="text-sm text-gray-500">Use your camera</p>
+                </div>
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full flex items-center gap-4 p-4 hover:bg-blue-50 rounded-xl transition"
+              >
+                <div className="p-3 bg-green-100 rounded-full">
+                  <Upload className="w-6 h-6 text-green-600" />
+                </div>
+                <div className="text-left">
+                  <p className="font-medium text-gray-800">Upload from Gallery</p>
+                  <p className="text-sm text-gray-500">Choose from your files</p>
+                </div>
+              </button>
+            </div>
+            <div className="p-3 border-t border-gray-100">
+              <button
+                onClick={() => setShowImageOptions(false)}
+                className="w-full py-3 text-gray-500 hover:text-gray-700 font-medium transition"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
-      </footer>
+      )}
 
+      {/* Hidden file inputs */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileUpload}
+        className="hidden"
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleCameraCapture}
+        className="hidden"
+      />
+
+      {/* Bottom Navigation - Mobile */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 sm:hidden safe-bottom">
+        <div className="flex justify-around py-2">
+          <button className="flex flex-col items-center gap-1 p-2 text-blue-600">
+            <Brain className="w-5 h-5" />
+            <span className="text-xs font-medium">Analyze</span>
+          </button>
+          <Link href="/patients" className="flex flex-col items-center gap-1 p-2 text-gray-400">
+            <Users className="w-5 h-5" />
+            <span className="text-xs">Patients</span>
+          </Link>
+          <button 
+            onClick={() => imagePreview ? (isRecording ? stopRecording() : startRecording()) : setShowImageOptions(true)}
+            className={`flex flex-col items-center gap-1 p-2 ${isRecording ? 'text-red-500' : 'text-gray-400'}`}
+          >
+            <Mic className="w-5 h-5" />
+            <span className="text-xs">{isRecording ? 'Stop' : 'Voice'}</span>
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }

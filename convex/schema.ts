@@ -2,9 +2,39 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
-  // Patients table
+  // Doctors table (for authentication)
+  doctors: defineTable({
+    email: v.string(),
+    passwordHash: v.string(),
+    firstName: v.string(),
+    lastName: v.string(),
+    phone: v.optional(v.string()),
+    specialization: v.optional(v.string()),
+    licenseNumber: v.optional(v.string()),
+    profileImage: v.optional(v.string()),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    lastLogin: v.optional(v.number()),
+  })
+    .index("by_email", ["email"]),
+
+  // Clinics/Hospitals table
+  clinics: defineTable({
+    doctorId: v.id("doctors"),
+    name: v.string(),
+    address: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    type: v.union(v.literal("clinic"), v.literal("hospital"), v.literal("other")),
+    isDefault: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_doctor", ["doctorId"]),
+
+  // Patients table (updated with clinic and doctor reference)
   patients: defineTable({
     patientId: v.string(),
+    doctorId: v.optional(v.id("doctors")),
+    clinicId: v.optional(v.id("clinics")),
     firstName: v.string(),
     lastName: v.string(),
     dateOfBirth: v.string(),
@@ -15,16 +45,22 @@ export default defineSchema({
     bloodType: v.optional(v.string()),
     allergies: v.optional(v.array(v.string())),
     medicalHistory: v.optional(v.string()),
+    notes: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_patient_id", ["patientId"])
-    .index("by_name", ["lastName", "firstName"]),
+    .index("by_name", ["lastName", "firstName"])
+    .index("by_phone", ["phone"])
+    .index("by_doctor", ["doctorId"])
+    .index("by_clinic", ["clinicId"]),
 
   // Sessions/Visits table
   sessions: defineTable({
     sessionId: v.string(),
     patientId: v.string(),
+    doctorId: v.optional(v.id("doctors")),
+    clinicId: v.optional(v.id("clinics")),
     doctorName: v.optional(v.string()),
     visitDate: v.number(),
     chiefComplaint: v.optional(v.string()),
@@ -38,6 +74,8 @@ export default defineSchema({
   })
     .index("by_session_id", ["sessionId"])
     .index("by_patient", ["patientId"])
+    .index("by_doctor", ["doctorId"])
+    .index("by_clinic", ["clinicId"])
     .index("by_date", ["visitDate"]),
 
   // Chat messages during sessions
@@ -54,7 +92,7 @@ export default defineSchema({
     imageId: v.string(),
     sessionId: v.optional(v.string()),
     patientId: v.string(),
-    storageId: v.id("_storage"), // Convex file storage reference
+    storageId: v.id("_storage"),
     fileName: v.string(),
     imageType: v.union(v.literal("xray"), v.literal("ct"), v.literal("mri"), v.literal("ultrasound"), v.literal("photo"), v.literal("other")),
     bodyPart: v.optional(v.string()),
@@ -66,7 +104,7 @@ export default defineSchema({
     .index("by_session", ["sessionId"])
     .index("by_patient", ["patientId"]),
 
-  // Visit summaries (doctor's notes at the end)
+  // Visit summaries
   summaries: defineTable({
     summaryId: v.string(),
     sessionId: v.string(),
@@ -89,9 +127,9 @@ export default defineSchema({
     patientId: v.string(),
     drugName: v.string(),
     dosage: v.string(),
-    frequency: v.string(), // e.g., "twice daily", "every 8 hours"
-    duration: v.string(), // e.g., "7 days", "2 weeks"
-    instructions: v.optional(v.string()), // e.g., "take with food"
+    frequency: v.string(),
+    duration: v.string(),
+    instructions: v.optional(v.string()),
     prescribedAt: v.number(),
   })
     .index("by_session", ["sessionId"])
@@ -106,4 +144,18 @@ export default defineSchema({
     confidence: v.number(),
     description: v.string(),
   }).index("by_session", ["sessionId"]),
+
+  // Communication logs (WhatsApp/Email)
+  communications: defineTable({
+    patientId: v.string(),
+    doctorId: v.optional(v.id("doctors")),
+    type: v.union(v.literal("whatsapp"), v.literal("email")),
+    recipient: v.string(),
+    subject: v.optional(v.string()),
+    message: v.string(),
+    status: v.union(v.literal("sent"), v.literal("failed"), v.literal("pending")),
+    sentAt: v.number(),
+  })
+    .index("by_patient", ["patientId"])
+    .index("by_doctor", ["doctorId"]),
 });
