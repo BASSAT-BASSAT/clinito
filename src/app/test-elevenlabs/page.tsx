@@ -153,7 +153,7 @@ export default function TestElevenLabsPage() {
           <ul className="text-sm text-yellow-200/80 space-y-2">
             <li>• Make sure <code className="bg-gray-800 px-1 rounded">.env.local</code> has your API key</li>
             <li>• Check if ElevenLabs free tier is not blocked</li>
-            <li>• Try using a VPN if getting "unusual activity" error</li>
+            <li>• Try using a VPN if getting &quot;unusual activity&quot; error</li>
             <li>• Check terminal for detailed error messages</li>
           </ul>
         </div>

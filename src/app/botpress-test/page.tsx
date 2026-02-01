@@ -432,7 +432,7 @@ export default function BotpressVoicePage() {
               </div>
               {lastMessage && (
                 <p className="mt-3 text-xs text-white/50 line-clamp-2">
-                  Last response: "{lastMessage.slice(0, 100)}{lastMessage.length > 100 ? '...' : ''}"
+                  Last response: &quot;{lastMessage.slice(0, 100)}{lastMessage.length > 100 ? '...' : ''}&quot;
                 </p>
               )}
             </div>

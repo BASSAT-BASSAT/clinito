@@ -367,7 +367,7 @@ export default function VoiceAnalysisPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-white">Voice Medical Analysis</h1>
-              <p className="text-xs text-teal-400/80">Say "highlight fracture" to analyze</p>
+              <p className="text-xs text-teal-400/80">Say &quot;highlight fracture&quot; to analyze</p>
             </div>
           </div>
         </div>
@@ -469,7 +469,7 @@ export default function VoiceAnalysisPage() {
               <p className="text-sm text-white font-medium">{status}</p>
               {lastTranscript && (
                 <p className="mt-2 text-xs text-white/50">
-                  Last: "{lastTranscript}"
+                  Last: &quot;{lastTranscript}&quot;
                 </p>
               )}
             </div>
@@ -522,11 +522,11 @@ export default function VoiceAnalysisPage() {
             <div className="bg-gradient-to-br from-teal-500/10 to-emerald-500/10 border border-teal-500/20 rounded-xl p-4">
               <h3 className="font-medium text-teal-300 mb-3">Example voice commands:</h3>
               <ul className="text-sm text-white/60 space-y-2">
-                <li>"<span className="text-teal-400">Highlight</span> fracture"</li>
-                <li>"<span className="text-teal-400">Find</span> tumor"</li>
-                <li>"<span className="text-teal-400">Show</span> lung opacity"</li>
-                <li>"<span className="text-teal-400">Detect</span> nodule"</li>
-                <li>"<span className="text-teal-400">Look for</span> effusion"</li>
+                <li>&quot;<span className="text-teal-400">Highlight</span> fracture&quot;</li>
+                <li>&quot;<span className="text-teal-400">Find</span> tumor&quot;</li>
+                <li>&quot;<span className="text-teal-400">Show</span> lung opacity&quot;</li>
+                <li>&quot;<span className="text-teal-400">Detect</span> nodule&quot;</li>
+                <li>&quot;<span className="text-teal-400">Look for</span> effusion&quot;</li>
               </ul>
             </div>
 
