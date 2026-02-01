@@ -3,14 +3,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Mic, MicOff, Loader2, Volume2, VolumeX, Stethoscope, Upload, X, Brain, ImageIcon } from 'lucide-react';
 
-// Declare SpeechRecognition types
-declare global {
-  interface Window {
-    SpeechRecognition: typeof SpeechRecognition;
-    webkitSpeechRecognition: typeof SpeechRecognition;
-  }
-}
-
 export default function VoiceAnalysisPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -31,7 +23,7 @@ export default function VoiceAnalysisPage() {
   const chunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const imageFileRef = useRef<File | null>(null);
   
   // Keep ref in sync with state

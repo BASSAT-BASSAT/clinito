@@ -3,13 +3,6 @@
 import { useAuth } from '@/components/AuthProvider';
 import { MessageCircle } from 'lucide-react';
 
-declare global {
-  interface Window {
-    botpress?: { open: () => void };
-    botpressWebChat?: { open?: () => void };
-  }
-}
-
 /**
  * Persistent floating chat bubble (like the old Botpress pop-up).
  * Shown when the doctor is logged in; click opens the Botpress webchat.

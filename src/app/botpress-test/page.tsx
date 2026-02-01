@@ -3,19 +3,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Mic, MicOff, Loader2, Volume2, VolumeX, Stethoscope, MessageCircle } from 'lucide-react';
 
-declare global {
-  interface Window {
-    botpress?: {
-      on: (event: string, callback: (data: unknown) => void) => void;
-      sendMessage: (text: string) => void;
-      sendEvent: (event: { type: string; payload?: any }) => void;
-      open: () => void;
-      close: () => void;
-      toggle: () => void;
-    };
-  }
-}
-
 export default function BotpressVoicePage() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);

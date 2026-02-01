@@ -4,16 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import Script from 'next/script';
 import { useAuth } from './AuthProvider';
 
-declare global {
-  interface Window {
-    botpressWebChat?: {
-      init: (config: any) => void;
-      sendEvent: (event: any) => void;
-      onEvent: (callback: (event: any) => void) => void;
-    };
-  }
-}
-
 // Clear all Botpress data from localStorage
 function clearBotpressData() {
   const keysToRemove: string[] = [];

@@ -6,13 +6,6 @@ import Link from 'next/link';
 import { Stethoscope, ArrowLeft, MessageCircle } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 
-declare global {
-  interface Window {
-    botpress?: { open: () => void };
-    botpressWebChat?: { open?: () => void };
-  }
-}
-
 type ClinitoHeaderProps = {
   title?: string;
   subtitle?: string;
