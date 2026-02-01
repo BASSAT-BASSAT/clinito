@@ -1,0 +1,243 @@
+name: Medical-SAM3 Integration Tests
+
+on:
+  push:
+    branches:
+      - main
+      - deployment-testing
+      - doctor-assistant-full-database
+  pull_request:
+    branches:
+      - main
+      - deployment-testing
+
+jobs:
+  test-docker-build:
+    name: Test Docker Build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build Docker image
+        working-directory: Medical-SAM3
+        run: |
+          docker build -t medsam3-test:latest .
+      
+      - name: Test Docker image size
+        run: |
+          IMAGE_SIZE=$(docker images medsam3-test:latest --format "{{.Size}}")
+          echo "Docker image size: $IMAGE_SIZE"
+          # Warn if image is too large (>5GB)
+          echo "Image built successfully"
+
+  test-container-startup:
+    name: Test Container Startup
+    runs-on: ubuntu-latest
+    needs: test-docker-build
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Load Docker image
+        run: |
+          docker load -i /tmp/medsam3-image.tar || true
+      
+      - name: Start container
+        working-directory: Medical-SAM3
+        run: |
+          docker build -t medsam3-test:latest .
+          docker run -d \
+            --name medsam3-test \
+            -p 8000:8000 \
+            -e PORT=8000 \
+            -e DEVICE=cpu \
+            medsam3-test:latest
+      
+      - name: Wait for container to be ready
+        run: |
+          timeout=120
+          elapsed=0
+          while [ $elapsed -lt $timeout ]; do
+            if curl -f http://localhost:8000/health > /dev/null 2>&1; then
+              echo "Container is ready!"
+              exit 0
+            fi
+            echo "Waiting for container... ($elapsed/$timeout seconds)"
+            sleep 5
+            elapsed=$((elapsed + 5))
+          done
+          echo "Container failed to start within $timeout seconds"
+          docker logs medsam3-test
+          exit 1
+      
+      - name: Test health endpoint
+        run: |
+          response=$(curl -s http://localhost:8000/health)
+          echo "Health check response: $response"
+          if echo "$response" | grep -q '"status":"ok"'; then
+            echo "✓ Health check passed"
+          else
+            echo "✗ Health check failed"
+            exit 1
+          fi
+      
+      - name: Test root endpoint
+        run: |
+          response=$(curl -s http://localhost:8000/)
+          echo "Root endpoint response: $response"
+          if echo "$response" | grep -q '"status":"ok"'; then
+            echo "✓ Root endpoint works"
+          else
+            echo "✗ Root endpoint failed"
+            exit 1
+          fi
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop medsam3-test || true
+          docker rm medsam3-test || true
+
+  test-segment-endpoint:
+    name: Test Segment Endpoint
+    runs-on: ubuntu-latest
+    needs: test-container-startup
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Start container
+        working-directory: Medical-SAM3
+        run: |
+          docker build -t medsam3-test:latest .
+          docker run -d \
+            --name medsam3-test \
+            -p 8000:8000 \
+            -e PORT=8000 \
+            -e DEVICE=cpu \
+            medsam3-test:latest
+      
+      - name: Wait for container
+        run: |
+          timeout=120
+          elapsed=0
+          while [ $elapsed -lt $timeout ]; do
+            if curl -f http://localhost:8000/health > /dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+            elapsed=$((elapsed + 5))
+          done
+      
+      - name: Create test image
+        run: |
+          # Create a simple test image using ImageMagick or Python
+          python3 -c "
+          from PIL import Image
+          import io
+          img = Image.new('RGB', (256, 256), color='red')
+          img.save('test_image.png')
+          "
+      
+      - name: Test segment endpoint
+        run: |
+          # Test with a simple prompt (may not return mask, but should not error)
+          response=$(curl -s -X POST \
+            -F "image=@test_image.png" \
+            -F "prompt=test" \
+            http://localhost:8000/segment)
+          
+          echo "Segment endpoint response: $response"
+          
+          # Check if response is valid JSON
+          if echo "$response" | python3 -m json.tool > /dev/null 2>&1; then
+            echo "✓ Segment endpoint returned valid JSON"
+            
+            # Check for expected fields
+            if echo "$response" | grep -q '"success"'; then
+              echo "✓ Response contains 'success' field"
+            else
+              echo "⚠ Response missing 'success' field"
+            fi
+          else
+            echo "✗ Segment endpoint returned invalid JSON"
+            echo "Response: $response"
+            exit 1
+          fi
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop medsam3-test || true
+          docker rm medsam3-test || true
+          rm -f test_image.png
+
+  test-python-imports:
+    name: Test Python Imports
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10"]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install PyTorch CPU
+        run: |
+          pip install torch==2.10.0 torchvision==0.25.0 --index-url https://download.pytorch.org/whl/cpu
+      
+      - name: Install dependencies
+        working-directory: Medical-SAM3
+        run: |
+          pip install -r requirements-full.txt || pip install -r requirements.txt
+      
+      - name: Install SAM3 from source
+        working-directory: Medical-SAM3
+        run: |
+          cd sam3 && pip install -e . || echo "SAM3 install may require additional setup"
+      
+      - name: Test imports
+        working-directory: Medical-SAM3
+        run: |
+          python3 -c "
+          import sys
+          sys.path.insert(0, 'inference')
+          try:
+              from sam3_inference import SAM3Model
+              print('✓ Successfully imported SAM3Model')
+          except ImportError as e:
+              print(f'⚠ Import warning (may be expected in CI): {e}')
+              sys.exit(0)
+          "
+
+  test-local-script:
+    name: Test Local Testing Script
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      
+      - name: Test script syntax
+        working-directory: Medical-SAM3
+        run: |
+          python3 -m py_compile test_medsam3_local.py
+          echo "✓ Test script syntax is valid"

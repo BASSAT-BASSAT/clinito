@@ -27,8 +27,8 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
-// Pages that don't require authentication
-const PUBLIC_PATHS = ['/login'];
+// Pages that don't require authentication (landing is public)
+const PUBLIC_PATHS = ['/', '/login'];
 
 // Clear all Botpress/chatbot data for privacy between doctors
 function clearChatbotData() {
@@ -89,9 +89,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const isPublicPath = PUBLIC_PATHS.includes(pathname);
       
       if (!doctor && !isPublicPath) {
-        router.push('/login');
-      } else if (doctor && isPublicPath) {
         router.push('/');
+      } else if (doctor && (pathname === '/' || pathname === '/login')) {
+        router.push('/home');
       }
     }
   }, [doctor, isLoading, pathname, router]);
@@ -114,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('currentDoctor', JSON.stringify(doctorData));
     localStorage.setItem('clinito_current_doctor_chat', doctorData.id);
     setDoctor(doctorData);
-    router.push('/');
+    router.push('/home');
   };
 
   const logout = () => {
@@ -124,8 +124,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('currentDoctor');
     setDoctor(null);
     
-    // Force reload to completely reset the chatbot widget
-    window.location.href = '/login';
+    // Force reload to completely reset the chatbot widget; back to public home
+    window.location.href = '/';
   };
 
   // Show loading while checking auth
@@ -140,14 +140,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  // Show loading while redirecting
+  // Show loading while redirecting (to public home)
   const isPublicPath = PUBLIC_PATHS.includes(pathname);
   if (!doctor && !isPublicPath) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="w-10 h-10 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-500 text-sm">Redirecting to login...</p>
+          <p className="text-gray-500 text-sm">Redirecting to home...</p>
         </div>
       </div>
     );

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import { ConvexClientProvider } from '@/components/ConvexClientProvider';
 import { AuthProvider } from '@/components/AuthProvider';
 import { ChatbotProvider } from '@/components/ChatbotProvider';
@@ -35,6 +36,16 @@ export default function RootLayout({
             <ChatbotProvider />
           </AuthProvider>
         </ConvexClientProvider>
+
+        {/* Botpress Chatbot - same as deployment-testing branch (launcher pop-up) */}
+        <Script
+          src="https://cdn.botpress.cloud/webchat/v3.5/inject.js"
+          strategy="afterInteractive"
+        />
+        <Script
+          src="https://files.bpcontent.cloud/2026/01/23/09/20260123091128-V0WNET1N.js"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );

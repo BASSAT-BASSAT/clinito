@@ -94,7 +94,7 @@ export default function SettingsPage() {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
-          <Link href="/" className="p-2 hover:bg-gray-100 rounded-lg transition">
+          <Link href="/home" className="p-2 hover:bg-gray-100 rounded-lg transition">
             <ArrowLeft className="w-5 h-5 text-gray-600" />
           </Link>
           <h1 className="font-bold text-gray-800">Settings</h1>
@@ -321,7 +321,7 @@ export default function SettingsPage() {
       {/* Bottom Navigation - Mobile */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 sm:hidden safe-bottom">
         <div className="flex justify-around py-2">
-          <Link href="/" className="flex flex-col items-center gap-1 p-2 text-gray-400">
+          <Link href="/home" className="flex flex-col items-center gap-1 p-2 text-gray-400">
             <Home className="w-5 h-5" />
             <span className="text-xs">Home</span>
           </Link>

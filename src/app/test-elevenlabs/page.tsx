@@ -160,7 +160,7 @@ export default function TestElevenLabsPage() {
 
         {/* Links */}
         <div className="text-center space-x-4">
-          <a href="/" className="text-blue-400 hover:underline">← Home</a>
+          <a href="/home" className="text-blue-400 hover:underline">← Home</a>
           <a href="/voice-analysis" className="text-blue-400 hover:underline">Voice Analysis →</a>
         </div>
       </div>
