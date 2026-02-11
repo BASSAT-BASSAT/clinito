@@ -1,16 +1,20 @@
 'use client';
 
-import { useState } from 'react';
-import { Stethoscope, Mail, Lock, User, Phone, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Stethoscope, Mail, Lock, User, Phone, Loader2, CheckCircle, Clock } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, doctor, isApprovedUser } = useAuth();
+  const router = useRouter();
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [accountCreated, setAccountCreated] = useState(false);
   
   // Convex mutations
   const registerDoctor = useMutation(api.auth.registerDoctor);
@@ -24,6 +28,66 @@ export default function LoginPage() {
     phone: '',
     specialization: '',
   });
+
+  // Redirect approved users to home
+  useEffect(() => {
+    if (doctor && isApprovedUser) {
+      router.push('/home');
+    }
+  }, [doctor, isApprovedUser, router]);
+
+  // Show success screen for non-approved users who just signed up
+  if (doctor && !isApprovedUser) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
+          <div className="max-w-lg mx-auto px-4 py-4 flex items-center justify-center gap-3">
+            <div className="p-2.5 bg-blue-600 rounded-xl">
+              <Stethoscope className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <span className="font-bold text-xl text-gray-800">Clinito</span>
+              <p className="text-xs text-gray-500">Doctor Portal</p>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-lg mx-auto px-4 py-8">
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm text-center">
+            <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+              <CheckCircle className="w-8 h-8 text-green-600" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-800 mb-2">
+              Welcome, Dr. {doctor.firstName}!
+            </h1>
+            <p className="text-gray-600 mb-6">
+              Your account has been created successfully.
+            </p>
+            
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+              <div className="flex items-start gap-3">
+                <Clock className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-left">
+                  <p className="text-sm font-semibold text-amber-800">Access Pending</p>
+                  <p className="text-xs text-amber-700 mt-1">
+                    Clinito is currently in private beta. Feature access is limited to our team. 
+                    Contact us if you&apos;d like early access!
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <Link
+              href="/"
+              className="inline-flex items-center justify-center w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition"
+            >
+              Back to Home
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

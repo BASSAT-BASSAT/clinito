@@ -14,6 +14,7 @@ interface Doctor {
 interface AuthContextType {
   doctor: Doctor | null;
   isLoading: boolean;
+  isApprovedUser: boolean;
   login: (doctor: Doctor) => void;
   logout: () => void;
 }
@@ -21,14 +22,25 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   doctor: null,
   isLoading: true,
+  isApprovedUser: false,
   login: () => {},
   logout: () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
 
+// Approved emails that can access all features (co-founders)
+const APPROVED_EMAILS = [
+  'mohamed77bassat@gmail.com',
+  'seifamgad447@gmail.com',
+  'omarmahmoudahmed2222005@gmail.com',
+];
+
 // Pages that don't require authentication (landing is public)
 const PUBLIC_PATHS = ['/', '/login'];
+
+// Pages that only approved users can access
+const PROTECTED_FEATURE_PATHS = ['/home', '/app', '/patients', '/session', '/settings', '/voice-analysis'];
 
 // Clear all Botpress/chatbot data for privacy between doctors
 function clearChatbotData() {
@@ -70,6 +82,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
+  // Check if current user has approved access
+  const isApprovedUser = doctor ? APPROVED_EMAILS.includes(doctor.email.toLowerCase()) : false;
+
   useEffect(() => {
     // Check for existing session
     const storedDoctor = localStorage.getItem('currentDoctor');
@@ -87,11 +102,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Redirect logic after loading
     if (!isLoading) {
       const isPublicPath = PUBLIC_PATHS.includes(pathname);
+      const isProtectedPath = PROTECTED_FEATURE_PATHS.some(p => pathname.startsWith(p));
       
       if (!doctor && !isPublicPath) {
         router.push('/');
-      } else if (doctor && (pathname === '/' || pathname === '/login')) {
-        router.push('/home');
+      } else if (doctor) {
+        const userIsApproved = APPROVED_EMAILS.includes(doctor.email.toLowerCase());
+        
+        if (pathname === '/' || pathname === '/login') {
+          // If approved, go to home; otherwise stay on landing or go to pending page
+          if (userIsApproved) {
+            router.push('/home');
+          }
+        } else if (isProtectedPath && !userIsApproved) {
+          // Non-approved user trying to access protected features
+          router.push('/');
+        }
       }
     }
   }, [doctor, isLoading, pathname, router]);
@@ -114,7 +140,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('currentDoctor', JSON.stringify(doctorData));
     localStorage.setItem('clinito_current_doctor_chat', doctorData.id);
     setDoctor(doctorData);
-    router.push('/home');
+    
+    // Only redirect to home if user is approved
+    if (APPROVED_EMAILS.includes(doctorData.email.toLowerCase())) {
+      router.push('/home');
+    }
+    // Non-approved users stay on landing page
   };
 
   const logout = () => {
@@ -142,6 +173,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Show loading while redirecting (to public home)
   const isPublicPath = PUBLIC_PATHS.includes(pathname);
+  const isProtectedPath = PROTECTED_FEATURE_PATHS.some(p => pathname.startsWith(p));
+  
   if (!doctor && !isPublicPath) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -153,8 +186,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
+  // Show loading if non-approved user is on protected path (being redirected)
+  if (doctor && isProtectedPath && !isApprovedUser) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-10 h-10 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-500 text-sm">Redirecting...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <AuthContext.Provider value={{ doctor, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ doctor, isLoading, isApprovedUser, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
