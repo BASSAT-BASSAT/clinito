@@ -5,11 +5,25 @@ import Image from 'next/image';
 import { 
   Camera, Upload, X, Users, Image as ImageIcon, 
   Stethoscope, Menu, LogOut, Mic, MicOff, Loader2,
-  Volume2, VolumeX, Brain
+  Volume2, VolumeX, Brain, ChevronDown, Sparkles, Tag, Search, Send
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
 import { ClinitoHeader } from '@/components/ClinitoHeader';
+
+// Classifier options
+const CLASSIFIER_OPTIONS = [
+  { id: 'none', name: 'Segmentation Only', description: 'Just highlight the region' },
+  { id: 'biomedclip', name: 'General (BiomedCLIP)', description: 'Any medical image' },
+  { id: 'chest_xray', name: 'Chest X-Ray', description: 'Pneumonia, nodule, etc.' },
+  { id: 'brain_tumor', name: 'Brain MRI', description: 'Tumor classification' },
+  { id: 'skin_lesion', name: 'Skin Lesion', description: 'Melanoma detection' },
+];
+
+interface ClassificationResult {
+  label: string;
+  confidence: number;
+}
 
 export default function AppHome() {
   const { doctor, logout } = useAuth();
@@ -27,6 +41,17 @@ export default function AppHome() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [status, setStatus] = useState('Upload or take a photo to begin');
   
+  // Classifier states
+  const [selectedClassifier, setSelectedClassifier] = useState('none');
+  const [showClassifierDropdown, setShowClassifierDropdown] = useState(false);
+  const [classificationResults, setClassificationResults] = useState<ClassificationResult[]>([]);
+  
+  // Mask overlay state
+  const [maskOpacity, setMaskOpacity] = useState(0.7);
+  
+  // Custom prompt state
+  const [customPrompt, setCustomPrompt] = useState('');
+  
   // Voice states
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -40,6 +65,7 @@ export default function AppHome() {
   const imageFileRef = useRef<File | null>(null);
   const imagePreviewRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const selectedClassifierRef = useRef<string>('none');
 
   // Keep refs in sync
   useEffect(() => {
@@ -49,6 +75,10 @@ export default function AppHome() {
   useEffect(() => {
     imagePreviewRef.current = imagePreview;
   }, [imagePreview]);
+
+  useEffect(() => {
+    selectedClassifierRef.current = selectedClassifier;
+  }, [selectedClassifier]);
 
   // Analysis keywords for voice commands
   const analysisKeywords = ['highlight', 'find', 'show', 'analyze', 'detect', 'look for', 'check', 'scan'];
@@ -103,6 +133,7 @@ export default function AppHome() {
     setMaskUrl(null);
     setAnalysisResult(null);
     setConfidence(0);
+    setClassificationResults([]);
     setStatus('Upload or take a photo to begin');
   };
 
@@ -150,7 +181,7 @@ export default function AppHome() {
     }
   }, []);
 
-  // SAM3 Analysis
+  // SAM3 Analysis (with optional classification)
   const runAnalysis = async (prompt: string) => {
     const currentImageFile = imageFileRef.current;
     if (!currentImageFile) {
@@ -160,26 +191,61 @@ export default function AppHome() {
     }
 
     setIsAnalyzing(true);
-    setStatus(`Analyzing: "${prompt}"...`);
+    setClassificationResults([]);
+    
+    // Determine which endpoint to use based on classifier selection (use ref to avoid stale closure)
+    const currentClassifier = selectedClassifierRef.current;
+    const useClassification = currentClassifier !== 'none';
+    const endpoint = useClassification ? '/api/sam3/segment-classify' : '/api/sam3/segment';
+    
+    // Debug logging
+    console.log('🔍 Analysis Debug:', { 
+      selectedClassifier: currentClassifier, 
+      useClassification, 
+      endpoint,
+      prompt 
+    });
+    
+    setStatus(useClassification ? `Analyzing & classifying: "${prompt}"...` : `Analyzing: "${prompt}"...`);
 
     try {
       const formData = new FormData();
       formData.append('image', currentImageFile);
       formData.append('prompt', prompt);
+      
+      if (useClassification) {
+        formData.append('classifier', currentClassifier);
+      }
 
-      const response = await fetch('/api/sam3/segment', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData,
       });
 
       if (response.ok) {
         const result = await response.json();
+        
+        // Debug logging for response
+        console.log('📦 Full response:', JSON.stringify(result, null, 2));
+        console.log('🏷️ Classification data:', result.classification);
+        
         const maskUrlValue = result.mask_url || result.maskDataUrl || result.overlayDataUrl;
         setMaskUrl(maskUrlValue);
         setAnalysisResult(result.description || `Found: ${prompt}`);
         setConfidence(result.confidence || 0.85);
-        setStatus('Analysis complete');
-        speakText(`Analysis complete. ${prompt} detected with ${Math.round((result.confidence || 0.85) * 100)} percent confidence.`);
+        
+        // Handle classification results
+        if (result.classification?.predictions) {
+          setClassificationResults(result.classification.predictions);
+          const topPred = result.classification.predictions[0];
+          if (topPred) {
+            setStatus(`Analysis complete - ${topPred.label} (${Math.round(topPred.confidence * 100)}%)`);
+            speakText(`Analysis complete. Detected ${topPred.label} with ${Math.round(topPred.confidence * 100)} percent confidence.`);
+          }
+        } else {
+          setStatus('Analysis complete');
+          speakText(`Analysis complete. ${prompt} detected with ${Math.round((result.confidence || 0.85) * 100)} percent confidence.`);
+        }
       } else {
         const errorData = await response.json().catch(() => ({}));
         const msg = errorData.error || errorData.details || 'Unknown error';
@@ -446,7 +512,7 @@ export default function AppHome() {
                   src={maskUrl} 
                   alt="Analysis overlay" 
                   className="absolute inset-0 w-full h-72 sm:h-80 object-contain pointer-events-none"
-                  style={{ opacity: 0.7 }}
+                  style={{ opacity: maskOpacity }}
                 />
               )}
               <button
@@ -470,12 +536,30 @@ export default function AppHome() {
           )}
         </div>
 
+        {/* Opacity Slider - only show when mask is present */}
+        {maskUrl && (
+          <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-slate-600 whitespace-nowrap">Overlay</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={maskOpacity * 100}
+                onChange={(e) => setMaskOpacity(Number(e.target.value) / 100)}
+                className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-500"
+              />
+              <span className="text-sm font-medium text-slate-500 w-12 text-right">{Math.round(maskOpacity * 100)}%</span>
+            </div>
+          </div>
+        )}
+
         {/* Status */}
         <div className="text-center mb-4">
           <p className="text-sm text-slate-600">{status}</p>
           {analysisResult && (
             <div className="mt-3 p-4 bg-sky-50 border border-sky-200 rounded-xl">
-              <p className="text-sm text-sky-800 font-medium">{analysisResult}</p>
+              <p className="text-sm text-sky-800 font-medium whitespace-pre-line">{analysisResult}</p>
               {confidence > 0 && (
                 <div className="mt-2 flex items-center justify-center gap-2">
                   <div className="flex-1 max-w-xs h-2 bg-sky-100 rounded-full overflow-hidden">
@@ -487,9 +571,96 @@ export default function AppHome() {
                   <span className="text-xs text-sky-700 font-medium">{Math.round(confidence * 100)}%</span>
                 </div>
               )}
+              {/* Classification Results */}
+              {classificationResults.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-sky-200">
+                  <p className="text-xs text-sky-600 font-semibold mb-2 flex items-center justify-center gap-1">
+                    <Tag className="w-3 h-3" />
+                    Classification Results
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {classificationResults.slice(0, 4).map((pred, idx) => (
+                      <span 
+                        key={idx}
+                        className={`text-xs px-2 py-1 rounded-full ${
+                          idx === 0 
+                            ? 'bg-sky-600 text-white' 
+                            : 'bg-sky-100 text-sky-700'
+                        }`}
+                      >
+                        {pred.label}: {Math.round(pred.confidence * 100)}%
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
+
+        {/* Classifier Selector (shown when image is uploaded) */}
+        {imagePreview && (
+          <div className="mb-4">
+            <div className="relative">
+              <button
+                onClick={() => setShowClassifierDropdown(!showClassifierDropdown)}
+                className="w-full flex items-center justify-between gap-2 py-3 px-4 bg-white border border-slate-200 hover:border-sky-300 rounded-xl transition"
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-sky-600" />
+                  <span className="text-sm font-medium text-slate-700">
+                    {CLASSIFIER_OPTIONS.find(c => c.id === selectedClassifier)?.name || 'Select Model'}
+                  </span>
+                </div>
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showClassifierDropdown ? 'rotate-180' : ''}`} />
+              </button>
+              
+              {showClassifierDropdown && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-40" 
+                    onClick={() => setShowClassifierDropdown(false)}
+                  />
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden z-50">
+                    {CLASSIFIER_OPTIONS.map((option) => (
+                      <button
+                        key={option.id}
+                        onClick={() => {
+                          setSelectedClassifier(option.id);
+                          setShowClassifierDropdown(false);
+                        }}
+                        className={`w-full flex items-start gap-3 px-4 py-3 hover:bg-sky-50 transition text-left ${
+                          selectedClassifier === option.id ? 'bg-sky-50' : ''
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded-full border-2 mt-0.5 flex-shrink-0 ${
+                          selectedClassifier === option.id 
+                            ? 'border-sky-600 bg-sky-600' 
+                            : 'border-slate-300'
+                        }`}>
+                          {selectedClassifier === option.id && (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <div className="w-1.5 h-1.5 bg-white rounded-full" />
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-slate-800">{option.name}</p>
+                          <p className="text-xs text-slate-500">{option.description}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <p className="text-xs text-slate-400 text-center mt-1">
+              {selectedClassifier !== 'none' 
+                ? 'Segmentation + Classification enabled' 
+                : 'Segmentation only (no AI diagnosis)'}
+            </p>
+          </div>
+        )}
 
         {/* Quick Analysis Options (shown when image is uploaded) */}
         {imagePreview && (
@@ -507,6 +678,41 @@ export default function AppHome() {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Custom Text Prompt Input */}
+        {imagePreview && (
+          <div className="mb-4">
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (customPrompt.trim()) {
+                  runAnalysis(customPrompt.trim());
+                  setCustomPrompt('');
+                }
+              }}
+              className="flex gap-2"
+            >
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  placeholder="Type what to find (e.g., fracture, tumor, nodule...)"
+                  disabled={isAnalyzing}
+                  className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400 disabled:opacity-50 placeholder:text-slate-400"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isAnalyzing || !customPrompt.trim()}
+                className="px-4 py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Send className="w-5 h-5" />
+              </button>
+            </form>
           </div>
         )}
 

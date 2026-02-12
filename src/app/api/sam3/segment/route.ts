@@ -11,9 +11,10 @@ export async function POST(request: NextRequest) {
     fetch('http://127.0.0.1:7242/ingest/1ec9172a-6e8b-4217-9818-a09534c09c81',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api/sam3/segment/route.ts:8',message:'Before SAM3 fetch',data:{targetUrl:'http://localhost:8000/segment'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
     // #endregion
     
-    // Forward to SAM3 server with timeout
+    // Forward to SAM3 server with timeout (Medical-SAM3 on CPU can take 60–120s)
+    const SEGMENT_TIMEOUT_MS = 120_000; // 2 minutes
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), SEGMENT_TIMEOUT_MS);
     
     try {
       const response = await fetch('http://localhost:8000/segment', {

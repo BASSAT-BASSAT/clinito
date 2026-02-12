@@ -67,5 +67,17 @@ tzdata==2025.3
 uvicorn==0.40.0
 wcwidth==0.3.1
 
+# ============================================
+# Classification Models
+# ============================================
+
+# BiomedCLIP - Zero-shot medical image classification (Microsoft)
+# Uses open_clip for model loading
+open_clip_torch>=2.24.0
+
+# TorchXRayVision - Chest X-ray pathology classification
+# Supports 14+ pathologies (pneumonia, cardiomegaly, etc.)
+torchxrayvision>=1.2.0
+
 # SAM3 will be installed from source in Dockerfile
 # sam3 @ file:///C:/Users/asus/Desktop/CLINITO/Medical-SAM3/sam3
